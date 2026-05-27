@@ -31,16 +31,12 @@
 #define MLWE_FAST_VERSION_PATCH 0
 
 #define MLWE_FAST_ERROR_NONE 0
-#define MLWE_FAST_ERROR_GENERIC -1
+#define MLWE_FAST_ERROR_GENERIC (-1)
 
-#define MLWE_FAST_K 1
-#define MLWE_FAST_N 1
-#define MLWE_FAST_Q 1
-
-#define MLWE_FAST_PUBLICKEYBYTES  1
-#define MLWE_FAST_SECRETKEYBYTES  1
-#define MLWE_FAST_CIPHERTEXTBYTES 1
-#define MLWE_FAST_SSBYTES         1
+#define MLWE_FAST_PUBLICKEYBYTES  800
+#define MLWE_FAST_SECRETKEYBYTES  1632
+#define MLWE_FAST_CIPHERTEXTBYTES 768
+#define MLWE_FAST_SSBYTES         32
 
 #if defined(_WIN32)
 #define MLWE_EXPORT __declspec(dllexport)
@@ -52,7 +48,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-
 #endif
 
 /**
@@ -71,7 +66,7 @@ int mlwe_fast_kem_keypair(uint8_t* pk, uint8_t* sk);
  * @param[out] ct Pointer to the output ciphertext buffer (MLWE_FAST_CIPHERTEXTBYTES).
  * @param[out] ss Pointer to the output shared secret buffer (MLWE_FAST_SSBYTES).
  * @param[in]  pk Pointer to the input public key.
- * @return 0 on success.
+ * @return 0 on success, or -1 error code if fails.
  */
 MLWE_EXPORT
 int mlwe_fast_kem_encaps(uint8_t* ct, uint8_t* ss, const uint8_t* pk);
@@ -82,7 +77,7 @@ int mlwe_fast_kem_encaps(uint8_t* ct, uint8_t* ss, const uint8_t* pk);
  * @param[out] ss Pointer to the output shared secret buffer (MLWE_FAST_SSBYTES).
  * @param[in]  ct Pointer to the input ciphertext.
  * @param[in]  sk Pointer to the input secret key.
- * @return 0 on success, or -1 if fails.
+ * @return 0 on success, or -1 error code if fails.
  */
 MLWE_EXPORT
 int mlwe_fast_kem_decaps(uint8_t* ss, const uint8_t* ct, const uint8_t* sk);
