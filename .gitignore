@@ -3,3 +3,7 @@ cmake-*
 out/
 svg-inkscape/
 build/
+!bench/*
+bench/*
+!bench/kem_bench.cpp
+!bench/*_benchmarks.py
