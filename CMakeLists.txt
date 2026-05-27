@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 project(
-		mlwe-fast
-		DESCRIPTION "A library for the MLWE problem, implemented in C."
-		VERSION 0.1.0
-		LANGUAGES CXX C
+  mlwe-fast
+  DESCRIPTION "A library for fast MLWE-based implementation of the CRYSTALS-Kyber KEM"
+  VERSION 0.1.0
+  LANGUAGES CXX C
 )
 
 set(CMAKE_CXX_STANDARD 17)
