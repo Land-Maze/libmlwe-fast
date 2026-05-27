@@ -20,13 +20,23 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O0")
 set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
-include(cmake/Dependencies.cmake)
+option(BUILD_BENCHMARK "Build benchmarking target" OFF)
+option(BUILD_TESTS "Build testing targets" OFF)
+
+
+include(FetchContent)
+if(BUILD_TESTS OR BUILD_BENCHMARK)
+    include(cmake/Catch2.cmake)
+    include(cmake/Kyber-Ref.cmake)
+endif()
 
 add_subdirectory(core)
 add_subdirectory(crypto)
-add_subdirectory(bench)
-add_subdirectory(tests)
 
-if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
-	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native -mtune=native")
+if(BUILD_BENCHMARK)
+    add_subdirectory(bench)
+endif()
+
+if(BUILD_TESTS)
+    add_subdirectory(tests)
 endif()
