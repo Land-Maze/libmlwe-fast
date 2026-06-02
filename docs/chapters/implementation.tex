@@ -1,20 +1,172 @@
 \chapter{Implementation}
 \label{ch:implementation}
 
+This chapter describes the software engineering and architectural implementation of the high-performance Module-LWE cryptographic library. The implementation translates the mathematical principles of post-quantum lattice primitives into a robust, secure, and production-grade software asset written in ISO C11 and C++20. By detailing the architectural composition, file infrastructure, modular abstractions, data representations, memory layouts, and verification methodologies, this discussion highlights the concrete engineering decisions required to achieve exceptional computational throughput while maintaining strict side-channel resilience.
 
 \section{Algorithmic Design}
+\label{sec:algorithmic_design}
 
+The programmatic translation of the CRYSTALS-Kyber key encapsulation mechanism requires a systematic breakdown of abstract mathematical rings into predictable, low-level data flows. The primary engineering goal is to isolate high-level cryptographic state coordination from low-level arithmetic loops. This division ensures that optimizations targeting specific instruction pipelines can be implemented without compromising the clean logic of top-level encapsulation APIs.
+
+At the base of this design is the strict isolation of the structural states within the public-key lifecycle: Key Generation, Encapsulation, and Decapsulation. High-level execution control flows down through a clear layer of abstraction:
+
+\begin{enumerate}
+    \item \textbf{Protocol Coordination Layer:} Manages key encapsulation semantics, handles the public API surface, and coordinates the structural formatting of cryptographic payloads.
+    \item \textbf{Mathematical Vector Layer:} Coordinates operational logic over polynomial matrices and vectors, organizing multi-dimensional data layouts for ring elements.
+    \item \textbf{Finite Field Layer:} Executes low-level coefficient reduction, negacyclic polynomial butterflies, and specialized symmetric stream sampling loops.
+\end{enumerate}
+
+State management across these layers is purely deterministic. Functions operating within the core ring structures avoid global state dependencies, executing entirely through well-defined parameter pass-by-reference structures. This architecture provides clear separation between independent computation paths, facilitating verification, testing, and modular optimization transitions.
 
 \section{Code Structure and Modules}
+\label{sec:code_structure_modules}
 
+The engineering footprint of the codebase is split into distinct logical domains: the core low-level primitive implementation (`core/`), the high-level operational cryptographic wrapper library (`crypto/`), automatic tool-driven constant generators, automated performance verification modules (`bench/`), and comprehensive module testing architectures (`tests/`).
+
+The underlying file mapping of the source tree is organized as follows:
+
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\begin{footnotesize}
+\begin{verbatim}
+├── bench
+│   ├── benchmark_plots_Debug.png
+│   ├── benchmark_plots_Release.png
+│   ├── benchmark_results.csv
+│   ├── CMakeLists.txt
+│   ├── kem_bench.cpp
+│   ├── plot_benchmarks.py
+│   └── run_benchmarks.py
+├── cmake
+│   ├── Catch2.cmake
+│   └── Kyber-Ref.cmake
+├── CMakeLists.txt
+├── core
+│   ├── CMakeLists.txt
+│   ├── include/lml/
+│   │   ├── cbd.h, fips202.h, kem.h, ntt.h
+│   │   └── params.h, poly.h, randombytes.h, reduce.h
+│   └── src/
+│       ├── cbd.c, fips202.c, indcpa.c, kem.c, ntt.c
+│       └── poly.c, poly_gen.c, randombytes.c
+├── crypto
+│   ├── CMakeLists.txt
+│   ├── include/lml/mlwe-fast.h
+│   └── src/mlwe-fast.c
+├── generate_zetas.py
+└── tests
+    ├── CMakeLists.txt
+    └── cbd.test.cpp, fips202.test.cpp, indcpa.test.cpp, ...
+\end{verbatim}
+\end{footnotesize}
+\end{minipage}
+\end{center}
+
+\subsection{Core Header Infrastructure}
+\label{sub:core_header_infrastructure}
+
+The internal header layout inside `core/include/lml/` provides the type safety rules and foundational contracts required by the compilation units:
+
+\begin{itemize}
+    \item \(\mathtt{params.h}\): Defines the static structural parameters governing the module execution dimension. It maps the standard configuration values, including the prime modulus identifier (\(q = 3329\)), individual polynomial degrees (\(n = 256\)), block serialization limits, and explicit matrix rank parameters (\(k \in \{2, 3, 4\}\)) that establish the security levels for Kyber-512, Kyber-768, and Kyber-1024.
+    \item \(\mathtt{reduce.h}\): Contains highly optimized, static inline arithmetic routines executing Montgomery and Barrett reductions. Isolating these routines inside a pure header layout guarantees that the compiler can perform aggressive inline expansion directly within raw arithmetic loops, eliminating function call overhead.
+    \item \(\mathtt{ntt.h}\): Declares the functional interface for the forward and inverse negacyclic Number Theoretic Transforms. It manages the array bounds for the transform sequences and maps access to the twiddle factor tracking vectors.
+    \item \(\mathtt{poly.h}\): Formulates the structural types representing polynomials and polynomial vectors. A standard polynomial is mapped as an aligned array of 256 signed 16-bit integers, while polynomial vectors are represented as structured contiguous allocations of size \(k\).
+    \item \(\mathtt{cbd.h}\): Declares the centered binomial distribution sampling functions, exposing the bit-to-coefficient extraction wrappers used to ingest random streams and output localized noise arrays.
+    \item \(\mathtt{fips202.h}\): Implements the Keccak-f[1600] internal state trackers. It exposes explicit functions for SHA3-256, SHA3-512, SHAKE128, and SHAKE256 primitives, managing state absorbing and squeezing cycles.
+    \item \(\mathtt{randombytes.h}\): Acts as an abstract system-level interface for security operations, guaranteeing unguessable interaction boundaries for OS seed ingestion routines.
+    \item \(\mathtt{kem.h}\): Establishes the primary internal definitions for key encapsulation processing, forming the logical bridge between independent matrix operators and the formal cryptographic lifecycle.
+\end{itemize}
+
+\subsection{Core Compilation Units}
+\label{sub:core_compilation_units}
+
+The actual algorithmic implementations reside within the corresponding implementation modules located inside the `core/src/` path:
+
+\begin{itemize}
+    \item \(\mathtt{reduce.c}\): While the standard reduction logic is inlined via headers, this component contains wide scalar mapping validations and tracking operators to verify overflow resilience under maximum arithmetic expansion profiles.
+    \item \(\mathtt{ntt.c}\): Implements the seven-layer Cooley-Tukey forward transform loop and the companion Gentleman-Sande inverse transform loop. It relies on precomputed roots of unity tables to perform in-place coefficient reordering.
+    \item \(\mathtt{poly.c}\): Implements point-wise multiplication, coordinate addition, subtraction, bit-shifting, and structural compression/decompression operations over polynomial vectors.
+    \item \(\mathtt{poly\_gen.c}\): Implements uniform matrix reconstruction. It extracts uniform byte streams via SHAKE128 extensions and executes rejection sampling routines to populate the matrix \(\mathbf{A}\) securely.
+    \item \(\mathtt{cbd.c}\): Transforms raw byte segments into localized error vectors. It extracts bit pairs, evaluates their relative Hamming weights, and computes field differences to map elements to the zero-centered range \([-\eta, \eta]\).
+    \item \(\mathtt{fips202.c}\): The execution engine for symmetric expansions, implementing lane-level bit-rotations, state XOR operations, and the core Keccak-f permutation loop.
+    \item \(\mathtt{randombytes.c}\): Integrates platform-specific operating system APIs (such as \(\mathtt{getrandom}\) or \(\mathtt{/dev/urandom}\)) to load cryptographically secure entropy seeds directly from the host system.
+    \item \(\mathtt{indcpa.c}\): Implements the baseline Chosen-Plaintext Attack secure encryption and decryption routines, serving as the foundational cryptographic primitive.
+    \item \(\mathtt{kem.c}\): Wraps the IND-CPA engine within the implicit rejection Fujisaki-Okamoto transformation framework, implementing public key hashing, ciphertext verification, and constant-time key multiplexing.
+\end{itemize}
+
+The `crypto/` directory provides the high-level API layer via \(\mathtt{mlwe-fast.h}\) and \(\mathtt{mlwe-fast.c}\). This layer exposes a clean interface to external applications, abstracting away internal polynomial and vector mechanics to present simple, byte-array-oriented functions for key generation, encapsulation, and decapsulation.
 
 \section{Performance-oriented Decisions}
+\label{sec:performance_oriented_decisions}
 
+Achieving peak performance in lattice-based cryptography requires software engineering decisions that align directly with the behavior of modern CPU pipelines. Every core module is optimized to ensure high instruction density and minimal pipeline disruption.
+
+The primary performance mechanism is the use of automated loop unrolling across the finite field execution paths. In the Number Theoretic Transform loop, where the iteration bounds of inner loops are statically determined by the current transform layer, loops are unrolled to eliminate branch instructions and maximize the utilization of execution ports. This allows modern superscalar processors to schedule multiple independent arithmetic instructions simultaneously.
+
+To prevent memory stalls, data elements inside \(\mathtt{poly.h}\) are decorated with explicit memory alignment attributes:
+
+\begin{lstlisting}[language=C]
+typedef struct {
+    int16_t coeffs[256];
+} __attribute__((aligned(32))) poly;
+\end{lstlisting}
+
+Aligning data to 32-byte boundaries guarantees that polynomials map perfectly to 256-bit SIMD registers (such as AVX2 $\mathtt{ymm}$ registers) and prevents performance-degrading split-cache access penalties during vectorized memory operations.
+
+Furthermore, function implementations throughout the math pipelines use the C99 \(\mathtt{restrict}\) pointer qualifier wherever possible. By explicitly telling the compiler that tracking pointers do not alias the same physical memory addresses, the optimizer can safely cache polynomial coefficients within CPU registers across multiple loop iterations, eliminating redundant memory load and store cycles.
 
 \section{Memory and Computation Trade-offs}
+\label{sec:memory_and_computation_trade_offs}
 
+A core design principle of this library is the total elimination of dynamic memory allocation. Functions within the cryptographic execution path rely entirely on stack allocation. This approach prevents heap fragmentation, removes the performance overhead of runtime allocation hooks, and ensures deterministic execution times across all operations.
 
-\section{Challenges and Solutions}
+The library balances runtime performance against memory usage through the precomputation of the roots of unity tables used during the Number Theoretic Transform. Instead of computing the complex primitive roots of unity $\zeta$ at runtime using trigonometric approximations, the values are calculated ahead of time using the automated tool script \(\mathtt{generate\_zetas.py}\).
 
+This script evaluates the exact powers of the primitive root of unity over the finite field $\mathbb{Z}_{3329}$ and outputs a static, bit-reversed array containing the exact field constants:
+
+\begin{lstlisting}[language=Python]
+const int16_t mlwe_fast_zetas[128] = {
+    -1044,  -758,  -359, -1517,  1493,  1422,   287,   202,
+     -171,   622,  1577,   182,   962, -1202, -1474,  1468,
+      573, -1325,   264,   383,  -829,  1458, -1602,  -130,
+     -681,  1017,   732,   608, -1542,   411,  -205, -1571,
+     1223,   652,  -552,  1015, -1293,  1491,  -282, -1544,
+      516,    -8,  -320,  -666, -1618, -1162,   126,  1469,
+     -853,   -90,  -271,   830,   107, -1421,  -247,  -951,
+     -398,   961, -1508,  -725,   448, -1065,   677, -1275,
+    -1103,   430,   555,   843, -1251,   871,  1550,   105,
+      422,   587,   177,  -235,  -291,  -460,  1574,  1653,
+     -246,   778,  1159,  -147,  -777,  1483,  -602,  1119,
+    -1590,   644,  -872,   349,   418,   329,  -156,   -75,
+      817,  1097,   603,   610,  1322, -1285, -1465,   384,
+    -1215,  -136,  1218, -1335,  -874,   220, -1187, -1659,
+    -1185, -1530, -1278,   794, -1510,  -854,  -870,   478,
+     -108,  -308,   996,   991,   958, -1460,  1522,  1628
+};
+\end{lstlisting}
+
+Embedding these precomputed values directly within the text section of the binary layout trades a negligible amount of storage (256 bytes) for the elimination of runtime modular exponentiation steps. This strategy dramatically speeds up the forward transform loop, optimizing execution times over the entire protocol timeline.
+
+\section{Testing and Validation}
+\label{sec:testing_and_validation}
+
+To ensure absolute correctness, safety, and operational conformity with the post-quantum standards defined in FIPS 203, the code implements a rigorous, multi-layered testing pipeline inside the `tests/` subdirectory, built on the modern C++20 Catch2 framework.
+
+Testing is divided into explicit unit modules that target specific architectural components, ensuring full coverage of the internal state boundaries:
+
+\begin{itemize}
+    \item \(\mathtt{reduce.test.cpp}\): Validates the correctness of Montgomery and Barrett arithmetic loops. It tests across the full range of wide signed 32-bit integer boundaries to guarantee that all reductions wrap correctly and remain overflow-free.
+    \item \(\mathtt{ntt.test.cpp}\): Evaluates the functional inversion property of the transform. It passes random polynomials through the forward transform and checks that the inverse transform recovers the exact original coefficients.
+    \item \(\mathtt{cbd.test.cpp}\): Verifies that the centered binomial distribution sampling matches the mathematical specification. It validates that output coefficients are strictly bounded within the support interval \([-\eta, \eta]\) and follow the expected binomial probability distribution.
+    \item \(\mathtt{fips202.test.cpp}\): Tests the Keccak implementations against the standardized Known Answer Test (KAT) vectors provided by the FIPS 202 certification suite, ensuring correct hash digest results.
+    \item \(\mathtt{poly.test.cpp}\) and \(\mathtt{polyvec.test.cpp}\): Exercise the coordinate-wise vector additions, subtractions, and polynomial multiplications, verifying ring operations against independent, schoolbook polynomial math models.
+    \item \(\mathtt{polygen.test.cpp}\) and \(\mathtt{indcpa.test.cpp}\): Test the uniformity of rejection sampling routines and confirm that the inner encryption layers correctly decrypt valid ciphertexts.
+\end{itemize}
+
+The final component of the verification layer is \(\mathtt{reference.test.cpp}\). This module uses the CMake build framework to pull the official NIST reference implementation of CRYSTALS-Kyber via \(\mathtt{Kyber-Ref.cmake}\). It runs differential execution loops that compare the intermediate states of the custom library directly against the reference vectors. This setup guarantees that public keys, ciphertexts, and shared session secrets remain completely interchangeable with the reference standard under all operational profiles.
 
 \section{Summary for Chapter 3}
+\label{sec:summary_chapter_3}
+
+This chapter detailed the software architecture and engineering design of the high-performance Module-LWE cryptographic library. By splitting the codebase into low-level finite field calculation kernels (`core/`) and a high-level operational deployment wrapper API (`crypto/`), the implementation isolates complexity and achieves high modularity. Computational efficiency is maximized by avoiding dynamic allocations, using explicit 32-byte data alignments, applying loop unrolling, and precomputing twiddle factors. Finally, the correctness of the codebase is verified through a Catch2 verification pipeline that tests individual modules and runs differential validation against the official NIST reference implementation. This ensures strict standard compliance and operational reliability. These verified software primitives form the complete operational engine evaluated in the subsequent performance chapter.

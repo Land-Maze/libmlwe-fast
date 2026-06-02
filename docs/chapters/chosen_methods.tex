@@ -1,8 +1,386 @@
 \chapter{Chosen Methods}
 \label{ch:chosen_methods}
 
+\section{Module-LWE Parameters and Scheme Design}
+\label{sec:mlwe_parameters_design}
 
-\section{Module-LWE}
+\subsection{Algorithmic Structure of CRYSTALS-Kyber}
+\label{sub:crystals_kyber_structure}
 
+The architecture of the CRYSTALS-Kyber public-key encryption scheme is rooted firmly within the hardness of the Module Learning With Errors (M-LWE) problem \cite{kyber_spec_2021}. Unlike standard LWE which evaluates scaling dimensions over unstructured vectors, or Ring-LWE which operates entirely within a single large polynomial ring, M-LWE balances structural efficiency and security by utilizing modules over a fixed polynomial ring $R_q$.
+
+The core cryptographic mechanics are divided into three structural operations: Key Generation, Encryption, and Decryption, denoted respectively as $\mathsf{Kyber.KeyGen}$, $\mathsf{Kyber.Encrypt}$, and $\mathsf{Kyber.Decrypt}$. During key generation, a matrix $\mathbf{A} \in R_q^{k \times k}$ is generated uniform-randomly from a seed via symmetric extendable-output functions. The secret vector $\mathbf{s} \in R_q^k$ and an error vector $\mathbf{e} \in R_q^k$ are sampled from a centered binomial distribution. The public key vector $\mathbf{t} \in R_q^k$ is then computed through matrix-vector multiplication combined with bounded noise injection:
+
+\[ \mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e} \]
+
+Encryption maps a message $m \in \{0,1\}^{256}$ into a ciphertext tuple $(\mathbf{u}, v) \in R_q^k \times R_q$ using the public key $\mathbf{t}$ along with a freshly sampled random error infrastructure $(\mathbf{r}, \mathbf{e}_1, e_2)$, where $\mathbf{r}, \mathbf{e}_1 \in R_q^k$ and $e_2 \in R_q$:
+
+\[
+\begin{aligned}
+\mathbf{u} &= \mathbf{A}^T\mathbf{r} + \mathbf{e}_1 \\
+v &= \mathbf{t}^T\mathbf{r} + e_2 + \left\lceil \frac{q}{2} \right\rceil \cdot m
+\end{aligned}
+\]
+
+Decryption recovers the noisy representation of the message by computing the inner operational difference between the ciphertext components using the secret key vector $\mathbf{s}$:
+
+\[ v - \mathbf{s}^T\mathbf{u} = \mathbf{e}^T\mathbf{r} + e_2 - \mathbf{s}^T\mathbf{e}_1 + \left\lceil \frac{q}{2} \right\rceil \cdot m \]
+
+Provided that the accumulated error expressions do not cross the structural quantization thresholds of the modulus space, rounding yields an exact, error-free reconstruction of the original bit sequence.
+
+\subsection{Parameter Sets and Security Levels}
+\label{sub:parameter_sets_security}
+
+CRYSTALS-Kyber achieves distinct security gradations by altering the matrix rank $k$ while maintaining a fixed polynomial degree $n = 256$ and a uniform modulus $q = 3329$. This operational configuration yields three primary parameter profiles, which directly map to the National Institute of Standards and Technology (NIST) post-quantum cryptography security categories \cite{fips203}.
+
+\begin{table}[ht]
+\centering
+\label{tab:kyber_parameters}
+\begin{tabular}{lccccc}
+\hline
+\textbf{Parameter Set} & \textbf{Rank ($k$)} & \textbf{$\eta_1$} & \textbf{$\eta_2$} & \textbf{NIST Level} & \textbf{Ciphertext Size (Bytes)} \\ \hline
+Kyber-512              & 2                   & 3                 & 2                 & Level 1             & 768                             \\
+Kyber-768              & 3                   & 2                 & 2                 & Level 3             & 1088                            \\
+Kyber-1024             & 4                   & 2                 & 2                 & Level 5             & 1568                            \\ \hline
+\end{tabular}
+\end{table}
+
+The probability distributions of the error terms are tightly regulated by adjusting the parameter $\eta$ of the Centered Binomial Distribution. For Kyber-512, noise boundaries expand slightly via $\eta_1 = 3$ to compensate for the lower algebraic rank, whereas Kyber-768 and Kyber-1024 compress secret noise bounds to $\eta_1 = 2$, maximizing security thresholds relative to total computational overhead.
+
+\subsection{Algebraic Structuring of Polynomial Rings}
+\label{sub:algebraic_structuring_rings}
+
+The mathematical operations of CRYSTALS-Kyber take place inside the cyclotomic polynomial ring $R_q = \mathbb{Z}_q[X]/(X^n + 1)$. The concrete performance profile of the implementation depends completely on the algebraic relationship between the designated ring size $n = 256$ and the prime modulus $q = 3329$.
+
+A critical design characteristic of Kyber is that the prime modulus satisfies the specific congruence constraint:
+
+$$q \equiv 1 \pmod{256}$$
+
+Because $3329 = 13 \cdot 256 + 1$, a primitive $256$-th root of unity exists inside the finite field $\mathbb{Z}_q$. However, $q \not\equiv 1 \pmod{512}$, meaning that a primitive $512$-th root of unity (which would represent the direct square root of the $256$-th root) does not exist within the field.
+
+Consequently, the polynomial ring denominator $X^{256} + 1$ cannot split completely into $256$ linear factors of degree 1 over $\mathbb{Z}_q$. Instead, it factors cleanly into exactly 128 coprime quadratic trinomials:
+
+$$X^{256} + 1 = \prod_{i=0}^{127} (X^2 - \zeta_i)$$
+
+where each $\zeta_i$ represents a distinct, odd power of the primitive $256$-th root of unity. This algebraic layout prevents a full $256$-point Number Theoretic Transform (NTT), enforcing instead an incomplete NTT structure. The transform maps polynomials from $R_q$ into a vectorized array of 128 distinct fragments within a collection of smaller, independent residue fields of the form $\mathbb{Z}_q[X]/(X^2 - \zeta_i)$. This algebraic constraint forms the exact foundation for the parallelized, assembly-optimized polynomial multiplication routines used in fast Module-LWE deployments.
+
+\section{IND-CPA to IND-CCA Public-Key Encryption Transformations}
+\label{sec:ind_cca_transformations}
+
+\subsection{The Fujisaki-Okamoto (FO) Transform Variant}
+\label{sub:fujisaki_okamoto_variant}
+
+The transition of CRYSTALS-Kyber from a passively secure Public-Key Encryption (PKE) scheme to an actively secure Key Encapsulation Mechanism (KEM) satisfying Indistinguishability under Chosen-Ciphertext Attacks (IND-CCA) is achieved via a modified variant of the Fujisaki-Okamoto (FO) transform \cite{HHK17}. A baseline lattice-based PKE scheme is inherently vulnerable to chosen-ciphertext attacks, where an adversary can construct malicious, out-of-distribution ciphertexts to probe the boundary conditions of the secret error distributions and incrementally reconstruct the private key.
+
+To prevent this exploit vector, Kyber implements a post-quantum variant of the FO transform defined over a framework of cryptographic hash functions: $\mathsf{G}$, $\mathsf{H}$, and $\mathsf{KDF}$ \cite{kyber_spec_2021}. The transform encapsulates an underlying IND-CPA PKE scheme inside a rigid wrapper that binds the final shared symmetric key not only to a generated plaintext message but also to the entire surface layout of the transmitted ciphertext itself, ensuring strict non-malleability.
+
+\subsection{Derandomization and Post-Quantum Core Assumptions}
+\label{sub:derandomization_pq_assumptions}
+
+Derandomization forms the structural backbone of post-quantum FO transformations. In a standard IND-CPA encryption sequence, the sender draws independent, unpredictable random coins $r$ directly from an entropy source to compute the polynomial noise terms. In an active attack scenario, an adversary could modify parts of a valid ciphertext while maintaining its structural validity, exploiting the receiver's willingness to process any syntactically correct inputs.
+
+The FO transform neutralizes this vulnerability by completely eliminating non-deterministic entropy during the encryption phase of decapsulation. The random coins $r$ are instead bound deterministically to both the candidate message $m$ and a hash of the public key $pk$:
+
+$$r = \mathsf{G}(m \mathbin{\Vert} \mathsf{H}(pk))$$
+
+By structuring the random coins as a deterministic output of a random oracle, the scheme ensures that for any unique pair of message and public key, there exists exactly one valid ciphertext representation. This prevents the adversary from executing adaptive manipulations, as any alteration to the ciphertext components will break the deterministic link to the underlying message payload.
+
+\subsection{Explicit Re-encryption and Error Handling Strategies}
+\label{sub:explicit_reencryption_errors}
+
+During the decapsulation phase ($\mathsf{Kyber.Decaps}$), the decapsulating entity performs an explicit re-encryption loop to verify the integrity of the incoming data. Let the received ciphertext be $c = (\mathbf{u}, v)$. The decapsulator begins by executing the internal decryption routine to extract a candidate plaintext message $m'$:
+
+$$m' = \mathsf{PKE.Decrypt}(sk_{pke}, c)$$
+
+Once $m'$ is recovered, the decapsulator does not immediately generate the shared key. Instead, it re-derives the identical pseudo-random coin infrastructure $r'$ using the public key stored in its profile:
+
+$$r' = \mathsf{G}(m' \mathbin{\Vert} \mathsf{H}(pk))$$
+
+Using these re-derived coins $r'$, the decapsulator explicitly executes the mathematical encryption sequence a second time, generating an identical reference ciphertext $c'$:
+
+$$c' = \mathsf{PKE.Encrypt}(pk, m', r')$$
+
+The system then evaluates the exact equality of the original ciphertext and the newly generated ciphertext:
+
+$$c \overset{?}{=} c'$$
+
+If the equality holds, it proves that the sender utilized the exact deterministic coins dictated by the random oracle, certifying that the ciphertext was constructed cleanly without malicious structural manipulation.
+
+\subsection[Ciphertext Validation and Rejection Penalties]{Ciphertext Validation and Decapsulation Failure Penalties}
+\label{sub:ciphertext_validation_failures}
+
+To guard against side-channel timing attacks and choice-rejection leaks, Kyber avoids explicit error flags or early-return branching paths when a ciphertext mismatch occurs. Instead, it utilizes an \textit{implicit rejection} paradigm modeled after the modular $U_K^{\not\bot}$ variant of the FO transform \cite{HHK17}. A secret seed vector $z \in \{0,1\}^{256}$ is embedded within the private key layout during key generation. If the explicit re-encryption check verifies successfully, the final shared session key $K$ is computed as a hash of the message and the ciphertext layout:
+
+\[ K = \mathsf{KDF}(m' \mathbin{\Vert} \mathsf{H}(c)) \]
+
+If the re-encryption check fails ($c \neq c'$), indicating either an active transmission error or a deliberate chosen-ciphertext probing attempt, the algorithm switches the key derivation path in constant time. It penalizes the calling entity by returning a pseudo-random dummy key $\hat{K}$ derived directly from the secret seed $z$ and the malicious ciphertext:
+
+\[ \hat{K} = \mathsf{KDF}(z \mathbin{\Vert} \mathsf{H}(c)) \]
+
+Because $\hat{K}$ is generated using a cryptographically secure hash function, it is computationally indistinguishable from a legitimate session key to an external observer, nullifying probing attacks.
+
+%
+
+
+\section{Number Theoretic Transform (NTT) Optimization}
+\label{sec:ntt_optimization}
+
+\subsection{Cooley-Tukey and Gentleman-Sande Butterflies}
+\label{sub:ntt_butterflies}
+
+The efficiency of polynomial arithmetic relies on the structural organization of the Number Theoretic Transform (NTT) evaluated within the cyclotomic ring $R_q = \mathbb{Z}_q[X]/(X^{256} + 1)$. By mapping polynomials from the standard coefficient representation to an evaluation domain, the transform reduces the complexity of polynomial expansion from an $O(n^2)$ algebraic convolution to an $O(n \log n)$ point-wise product. This mathematical mapping relies on two primary configuration primitives: the Cooley-Tukey (CT) and the Gentleman-Sande (GS) butterflies.
+
+The Cooley-Tukey butterfly utilizes a decimation-in-time approach. It divides a discrete sequence into smaller subsequences and combines them by applying a scaling operation using a primitive root of unity, known as the twiddle factor $\zeta$, prior to performing additions and subtractions. Let $u$ and $v$ define two distinct intermediate algebraic elements within a given transformation stage. The forward Cooley-Tukey mapping maps these elements according to the following system:
+
+$$u' = u + \zeta \cdot v \pmod{q}$$
+$$v' = u - \zeta \cdot v \pmod{q}$$
+
+Conversely, the Gentleman-Sande butterfly is structured as a decimation-in-frequency operator. It alters the mathematical sequencing by performing algebraic additions and subtractions on the input streams prior to the modular scaling phase. The twiddle factor multiplication is applied directly to the subtraction difference vector:
+
+$$u' = u + v \pmod{q}$$
+$$v' = \zeta \cdot (u - v) \pmod{q}$$
+
+Mathematically, these two topologies are duals of one another. By structuring the forward transform exclusively around Cooley-Tukey butterflies, an input sequence in natural order is systematically evaluated and outputted in a bit-reversed state. The inverse transform can then accept this bit-reversed sequence directly by utilizing Gentleman-Sande butterflies, which naturally restore the final outputs to standard canonical ordering without requiring explicit data permutation passes.
+
+\subsection{Twiddle Factors and Bit-Reversal Permutations}
+\label{sub:twiddle_factors_bit_reversal}
+
+The distribution of primitive roots of unity across successive stages of the NTT is dictated by a bit-reversal indexing methodology. Rather than computing algebraic roots dynamically, the transform over the finite field $\mathbb{Z}_{3329}$ maps operations to a discrete set of sub-roots generated by a primitive $256$-th root of unity $\gamma = 17$, which satisfies the identity $\gamma^{256} \equiv 1 \pmod{3329}$.
+
+The specific twiddle factor assigned to each butterfly operation is governed by the bit-reversal function $\text{rev}(k)$, which maps a binary string of an integer index to its exact mirror reflection over a 7-bit space. This permutation alters the mathematical flow of the transform. Instead of iterating through powers of $\gamma$ linearly, the roots are arranged such that the algebraic dependencies between adjacent stages match the natural spatial sequence of a bit-reversed array. This arrangement ensures that the mathematical arguments fed into each butterfly stage align precisely with the sub-rings generated during the factorization of the cyclotomic polynomial.
+
+\subsection{In-Place Layer Execution and Memory Strides}
+\label{sub:inplace_layer_execution}
+
+The structural topology of the radix-2 NTT maps the total transformation into a sequence of seven distinct mathematical layers. Each layer represents a progressive splitting of the underlying polynomial space into smaller, independent mathematical dimensions. The geometric distance between interacting coefficient pairs is defined as the stride length.
+
+At any given layer $l \in \{0, \dots, 6\}$, the algebraic interactions are restricted to pairs separated by a fixed stride distance $\text{len} = 2^{6-l}$. The geometric configuration maps index pairs according to a systematic offset layout:
+
+$$\text{index}_A = j$$
+$$\text{index}_B = j + \text{len}$$
+
+As the calculation progresses from layer 0 down to layer 6, the stride distance shrinks monotonically by half at each step, moving from wide, distributed transformations down to dense, localized interactions. This predictable reduction in stride length marks the systematic refinement of the polynomial coefficients from macro-level properties down to localized evaluations at specific roots.
+
+\subsection{Incomplete NTT Variants and Modulus Optimization}
+\label{sub:incomplete_ntt_variants}
+
+The prime modulus $q = 3329$ satisfies the congruence condition $q \equiv 1 \pmod{256}$, establishing that a primitive $256$-th root of unity exists inside $\mathbb{Z}_q$. However, because $q \not\equiv 1 \pmod{512}$, a primitive $512$-th root of unity does not exist within this field. This algebraic constraint prevents the polynomial ring denominator $X^{256} + 1$ from splitting fully into a complete set of 256 linear factors of degree 1 over $\mathbb{Z}_q$.
+
+To align with this mathematical boundary, an *incomplete NTT* method is utilized. The transformation sequence is bounded to exactly seven layers, intentionally halting before executing the eighth layer that would be present in a traditional, fully split transform. This maps the baseline polynomial ring into a structured collection of 128 distinct quadratic trinomial fragments:
+
+$$f_i(X) = f_{2i} + f_{2i+1}X \in \mathbb{Z}_q[X]/(X^2 - \zeta_{\text{rev}(128+i)})$$
+
+Halting the transform loop at this exact stage alters the underlying complexity of the scheme. By evaluating polynomials as pairs of elements in localized quadratic residue fields rather than isolated scalar coordinates, the total mathematical instruction count drops by 128 butterfly computations per polynomial, optimizing the baseline operational density of the Module-LWE scheme.
+
+\subsection{Base Multiplication and Merging of Inverse Transforms}
+\label{sub:base_mul_merging_invntt}
+
+Because the incomplete NTT processes coefficients into 128 independent quadratic equations instead of isolated points, polynomial multiplication within the transform domain cannot be evaluated using a standard point-wise Hadamard product. Instead, multiplication requires a localized algebraic expansion across each individual quadratic sub-ring.
+
+Let two transformed components be represented as $f(X) = a_0 + a_1X$ and $g(X) = b_0 + b_1X$ within the localized module domain $\mathbb{Z}_q[X]/(X^2 - \zeta)$. The product polynomial $h(X) = f(X) \cdot g(X) \pmod{X^2 - \zeta}$ is derived by expanding the terms and explicitly applying the reduction identity $X^2 = \zeta$:
+
+$$h(X) = (a_0 \cdot b_0 + a_1 \cdot b_1 \cdot \zeta) + (a_0 \cdot b_1 + a_1 \cdot b_0)X$$
+
+This method replaces a single scalar product with a localized system of four scalar multiplications and a modular reduction phase per block.
+
+To maintain mathematical consistency when converting back to the standard coefficient domain, the inverse scaling scalar $256^{-1} \pmod{3329} = 3303$ is integrated directly into the inverse twiddle factor distributions. This incorporates the normalization scalar into the core butterfly operations of the inverse transform, ensuring that the necessary field normalization occurs automatically during the final aggregation layers rather than requiring a separate processing phase.
+
+%
+
+
+\section{Modular Reduction Techniques}
+\label{sec:modular_reduction_techniques}
+
+\subsection{Montgomery Reduction}
+\label{sub:montgomery_reduction}
+
+The mathematical structure of Module-LWE public-key frameworks requires highly optimized modular arithmetic routines to avoid the computational bottlenecks associated with traditional integer division. Within the context of polynomial ring expansions, multiplications are performed continuously, shifting coefficients outside their standard canonical bounds. To manage this expansion without relying on expensive hardware division instructions, the scheme relies primarily on the method of Montgomery reduction.
+
+The core objective of Montgomery reduction is to transform standard residue calculations into an algebraic tracking domain where division by a large prime modulus $q$ is substituted with simple arithmetic shifts and maskings relative to an auxiliary power-of-two radix $R$. To ensure algebraic uniqueness and viability, $R$ must be chosen such that $\gcd(q, R) = 1$ and $R > q$. For a given intermediate product $a$ that satisfies the inequality $-qR < a < qR$, the Montgomery operation calculates a scaled remainder projection:
+
+$$\text{MontRed}(a) \equiv a \cdot R^{-1} \pmod{q}$$
+
+The reduction process utilizes a fixed, precomputed field multiplier constant $q'$ defined by the modular inversion identity:
+
+$$q \cdot q' \equiv -1 \pmod{R}$$
+
+By utilizing $q'$, the method introduces an algebraic correction factor $t$ that forces the lower bits of the intermediate sum to zero. The theoretical mapping of the reduction steps is defined by the following operations:
+
+$$t = (a \cdot q') \pmod{R}$$
+$$m = \frac{a - t \cdot q}{R}$$
+
+Because the parameter $R$ is selected as an exact power of two, the computation of $t$ is evaluated purely as a modular truncation relative to the radix boundary, and the final division by $R$ becomes an exact arithmetic right-shift. This completely removes the trial division search space, allowing modular normalization to proceed in a deterministic sequence of multiplications and shifts. The resulting scalar $m$ is congruent to $a \cdot R^{-1} \pmod{q}$ and is guaranteed to fall within the bounded interval $(-q, q)$, requiring at most a single conditional addition to map cleanly back into the canonical residue ring.
+
+\subsection{Barrett Reduction}
+\label{sub:barrett_reduction}
+
+While Montgomery reduction handles the accumulated scaling parameters of polynomial multiplication by introducing a systematic factor of $R^{-1}$, independent point-wise additions, scalar distributions, and public-key formatting routines require an alternative method that returns values directly to the baseline canonical interval $[0, q-1]$ without introducing tracking fractions. For these general reduction boundaries, the scheme employs Barrett reduction.
+
+Barrett reduction functions by estimating the quotient of a division operation using fixed-point arithmetic instead of dynamic division steps. Given an arbitrary signed intermediate integer $a$, the exact quotient $\lfloor a / q \rfloor$ is approximated by multiplying the dividend by a precomputed fractional inverse of the modulus, scaled to a designated power-of-two bit boundary $v$:
+
+$$\mu = \lfloor \frac{2^v}{q} \rfloor$$
+
+Using this precomputed approximation factor $\mu$, the algorithm estimates the operational quotient variable $q_v$ through a sequence of standard integer multiplications and arithmetic bit-shifts:
+
+$$q_v = \lfloor \frac{a \cdot \mu}{2^v} \rfloor$$
+
+The resulting estimate $q_v$ acts as a precise approximation of the true quotient. The canonical remainder $r$ is subsequently isolated by subtracting the reconstructed divisor product from the original unreduced dividend value:
+
+$$r = a - q_v \cdot q$$
+
+Due to the discrete rounding bounds of the initial fixed-point division, the calculated remainder $r$ naturally satisfies the loose algebraic constraint $-q < r < q$. To map this intermediate remainder into the strict canonical range $[0, q-1]$, a final correction step is performed. Mathematically, this correction relies on evaluating the sign of $r$ and adding the value of the modulus $q$ if the remainder is negative. This method allows the entire reduction sequence to execute without any true division steps, utilizing only two multiplications, a shift, and a subtraction to normalize random element distributions within the finite field.
+
+
+%
+
+
+\section{Vectorized Arithmetic and SIMD Paradigm}
+\label{sec:vectorized_arithmetic_simd}
+
+\subsection{AVX2 vs. AVX-512 Instruction Sets}
+\label{sub:avx2_avx512_comparison}
+
+The mathematical throughput of lattice-based cryptographic primitives can be substantially increased by transitioning from scalar execution models to Single Instruction, Multiple Data (SIMD) paradigms. Within modern x86\_64 processor architectures, the primary vector extension sets available for acceleration are Advanced Vector Extensions 2 (AVX2) and Advanced Vector Extensions 512 (AVX-512). The structural differences between these two technologies fundamentally alter the parallelization layout of finite field operations.
+
+AVX2 features a 256-bit register width, managing data states through sixteen architectural registers ($\mathtt{ymm0}$ through $\mathtt{ymm15}$). When processing 16-bit signed integers, which correspond to the coefficient representation of elements in $\mathbb{Z}_{3329}$, an AVX2 vector lane handles exactly sixteen independent elements simultaneously.
+
+AVX-512 expands the vector width to 512 bits and increases the register space to thirty-two architectural registers ($\mathtt{zmm0}$ through $\mathtt{zmm31}$). This expansion enables the parallel processing of thirty-two 16-bit coefficients within a single instruction sequence. Beyond doubling the execution capacity per vector lane, AVX-512 introduces dedicated opcodes for masked operations and ternary logic evaluation. These architectural additions eliminate explicit blending instructions and reduce the total instruction footprint required for modular corrections.
+
+\subsection{Parallelizing Polynomial Operations}
+\label{sub:parallelizing_poly_ops}
+
+In Module-LWE schemes, the key structural operations involve the manipulation of large polynomial vectors of degree $n=256$. These operations include linear combinations, point-wise products, and coordinate additions. Because these operations apply identical operations across independent coefficient positions, they map well to SIMD instruction pipelines.
+
+For point-wise addition and subtraction within the ring, coefficients are handled as independent channels. In an AVX2 framework, a 256-degree polynomial is split across sixteen distinct vector loads, processing blocks of sixteen coefficients at a time. An AVX-512 architecture reduces this sequence to eight vector blocks, matching the structure of thirty-two element lanes.
+
+The parallelization of Montgomery and Barrett reduction models requires balancing register widths against intermediate bit-expansion constraints. When multiplying two 16-bit coefficients, the resulting intermediate product requires a 32-bit container to prevent overflow. Consequently, during vector multiplication, the coefficient capacity of a register lane decreases by half. This causes a 512-bit vector register to split from thirty-two 16-bit lanes down to sixteen 32-bit paths.
+
+To maintain parallel performance during domain mappings, the arithmetic must handle alternating unpacked layouts. High and low coefficient halves are processed through distinct pipeline stages before being recombined into standard 16-bit vector configurations via packed reduction sequences.
+
+\subsection{Register Layouts and Permutations for Shuffled Polynomial Coefficients}
+\label{sub:register_layouts_permutations}
+
+When executing the Number Theoretic Transform (NTT) inside a SIMD architecture, standard linear memory layouts create alignment challenges. As detailed in the mathematical definitions of the radix-2 butterfly, the distance (stride length) between interacting coefficient pairs shrinks by half at each subsequent layer of the transform.
+
+During the first three layers of the forward transform, the stride distance is larger than the maximum capacity of a single vector register lane. For these macro-layers, parallel execution proceeds by loading separate coefficient blocks into distinct vector registers. The butterfly operations then execute directly across these registers without requiring intra-register modifications.
+
+Once the transform reaches the intermediate layers, the stride length drops below the vector lane width. At this stage, interacting coefficient pairs reside within the same vector register. To execute these localized butterflies without stalling the execution pipeline, the data layout must undergo a series of intra-register permutations.
+
+These intra-register adjustments use specialized lane-shuffling instructions to cross-align the necessary coefficients. Elements are shifted, mirrored, and combined across byte boundaries to position the appropriate left-hand and right-hand operands into parallel slots. This data movement reorders the polynomial array from its canonical sequence into a shuffled, bit-reversed state inside the registers.
+
+By maintaining this shuffled orientation throughout the transform domain and matching it to the base multiplication phase, the implementation avoids the overhead of restoring natural order between intermediate steps, optimizing data flow through the execution unit.
+
+
+%
+
+
+\section{Polynomial Noise Generation and Sampling}
+\label{sec:poly_noise_generation_sampling}
+
+\subsection{Rejection Sampling from SHAKE Streams}
+\label{sub:rejection_sampling_shake}
+
+The structural security of Module-LWE public-key schemes relies on the uniform pseudo-random generation of matrix elements within the designated finite field $\mathbb{Z}_q$. In CRYSTALS-Kyber, public matrix coefficients are derived from a seed value by utilizing an extendable-output function, specifically SHAKE128. However, because the algebraic field size $q = 3329$ is not an exact power of two, a raw, unconditioned byte stream from an expander cannot be direct-mapped to the field elements without introducing a statistical modulo bias. To eliminate this issue, the scheme utilizes the method of rejection sampling.
+
+The theoretical mechanism of rejection sampling transforms a uniform distribution over a binary space $[0, 2^m-1]$ into a uniform distribution over a restricted canonical space $[0, q-1]$. The bit extraction parameter $m$ is selected as the smallest integer satisfying $2^m \ge q$, which for $q = 3329$ yields $m = 12$. The sampling logic parses the incoming continuous byte sequence into distinct 12-bit bitstrings. Each bitstring is converted into an intermediate integer value:
+
+$$v_i \in [0, 4095]$$
+
+Each candidate scalar $v_i$ is evaluated against the strict algebraic field boundary:
+
+$$v_i \overset{?}{<} 3329$$
+
+If the inequality holds, the value is accepted as a valid uniform coefficient within $\mathbb{Z}_q$. If $v_i \ge 3329$, the scalar is discarded, and the parsing framework evaluates the next sequential 12-bit slice.
+
+Because the probability of a single candidate being valid is $3329/4096 \approx 81.3\%$, the output stream requires a dynamic parsing frame. The structural method treats the cryptographic hash function as a random oracle that can be continuously expanded until a full polynomial array of $n = 256$ independent canonical coefficients is completely satisfied. This preserves the uniform distribution across the generated polynomial rings.
+
+\subsection{Centered Binomial Distribution (CBD)}
+\label{sub:cbd_sampling}
+
+While public matrix elements are sampled uniformly across $\mathbb{Z}_q$, the secret tracking vectors and structural error terms must be drawn from a narrow, localized error distribution to ensure the hardness of the underlying Module-LWE problem. The scheme achieves this localized noise sampling by using a Centered Binomial Distribution ($\chi_\eta$) of a bounded parameter $\eta$.
+
+A Centered Binomial Distribution of parameter $\eta$ is constructed by taking the algebraic difference of two independent, identically distributed binomial vectors of weight $\eta$. Let $a = (a_1, \dots, a_\eta)$ and $b = (b_1, \dots, b_\eta)$ represent two independent vectors of uniform bits. The structural definition of a sampled noise coefficient $e$ is expressed as:
+
+$$e = \sum_{i=1}^{\eta} a_i - \sum_{i=1}^{\eta} b_i$$
+
+The resulting integer value $e$ falls deterministically within the narrow, zero-centered interval $[-\eta, \eta]$. In the Kyber framework, the parameter is configured as either $\eta = 2$ or $\eta = 3$, depending on the target security level.
+
+The mathematical advantage of the CBD primitive over a continuous Gaussian noise model is its strict finite support. Traditional discrete Gaussian distributions require complex, high-precision transcendental evaluations or vast lookup distributions that are prone to side-channel analysis and precision errors. In contrast, the CBD distribution is bounded, eliminating tail-sampling logic. Furthermore, its combinatorial nature allows for linear mapping directly from raw bitstreams, establishing a secure method for noise insertion.
+
+
+%
+
+
+\section{Symmetric Primitives and Auxiliary Operations}
+\label{sec:symmetric_primitives_auxiliary}
+
+\subsection{Symmetric Primitives (SHA3 and SHAKE)}
+\label{sub:symmetric_primitives}
+
+The security framework of the post-quantum Key Encapsulation Mechanism relies on a set of symmetric cryptographic primitives defined by the Keccak-f[1600] permutation family, as specified in the FIPS 202 standard. These operations include both fixed-length secure hash functions, specifically SHA3-256 and SHA3-512, and Extendable-Output Functions (XOFs), namely SHAKE128 and SHAKE256.
+
+These functions act as the core deterministic infrastructure throughout the lifecycle of the KEM:
+\begin{itemize}
+    \item \textbf{SHA3-256} generates fixed 256-bit hash digests to compress public keys, binding a public identity to a single reference string used during key encapsulation and validation.
+    \item \textbf{SHA3-512} processes input states to generate 512-bit blocks split into independent keying seeds and randomness vectors, separating encryption domains.
+    \item \textbf{SHAKE128} operates as a high-throughput pseudo-random generator, expanding public seed parameters into long, deterministic byte sequences used to reconstruct the public matrix $\mathbf{A}$.
+    \item \textbf{SHAKE256} handles the pseudo-random generation of structural noise polynomials, using specialized nonce suffixes to ensure domain separation between different error vectors.
+\end{itemize}
+
+By relying entirely on the Keccak permutation family for symmetric operations, the scheme simplifies its theoretical security model. The active security of every internal sampling, expansion, and key derivation phase reduces directly to the collision resistance and pseudo-random inversion hardness of a single underlying mathematical permutation block.
+
+\subsection{Byte Packing and Serialization Strategies}
+\label{sub:byte_packing_serialization}
+
+Because polynomial coefficients within $\mathbb{Z}_q$ are represented internally as high-width integers, transmitting raw data arrays would lead to significant communication overhead. To minimize data size for network transmission, the scheme uses specialized byte packing and serialization techniques. These methods map raw, unaligned coefficient bit allocations into tightly aligned, byte-oriented arrays.
+
+The mathematical optimization of serialization depends on the maximum value range of the specific coefficient vector being processed. For standard uncompressed public keys, coefficients are bounded by $q=3329$, meaning each element requires exactly 12 bits of storage. A 12-bit allocation does not align with a standard 8-bit byte boundary. To resolve this, the serialization framework packs a pair of coefficients across 24 bits, matching a 3-byte layout.
+
+For compressed ciphertexts, the packing routines use a non-linear quantization step known as coefficient compression. Let $d$ represent the target compression bit depth, where $d < 12$. An element $x \in \mathbb{Z}_q$ is scaled and rounded into a compact integer representation:
+
+$$\text{Compress}_d(x) = \left\lfloor \frac{2^d}{q} \cdot x + \frac{1}{2} \right\rfloor \pmod{2^d}$$
+
+The compressed coefficient fits precisely within a $d$-bit container. During decapsulation, a corresponding decompression step projects the value back to the field:
+
+$$\text{Decompress}_d(y) = \left\lfloor \frac{q}{2^d} \cdot y + \frac{1}{2} \right\rfloor$$
+
+This lossy mathematical compression introduces a small amount of quantization noise, which is absorbed by the error-tolerance margins of the Module-LWE parameters. In exchange, it significantly reduces the final size of transmitted ciphertexts, minimizing public-key data exchange overhead.
+
+\subsection{Constant-Time Multiplexing and CMOV Selection}
+\label{sub:constant_time_cmov}
+
+During the decapsulation phase of the Key Encapsulation Mechanism, the system evaluates the structural validity of an incoming ciphertext by performing an explicit re-encryption check. As detailed in the Fujisaki-Okamoto transformation model, a mismatch between the original ciphertext and the re-encrypted reference indicates an invalid or manipulated input. To prevent adaptive chosen-ciphertext attacks, the choice between outputting the legitimate shared key or a pseudo-random dummy key must be handled via constant-time multiplexing.
+
+If an implementation uses traditional conditional branching statements (such as standard IF-THEN logic) to select the output key, the underlying processor's branch prediction hardware introduces timing vulnerabilities. An attacker can systematically observe the execution time of the decapsulation function across varied ciphertext inputs. This subtle timing variation allows them to determine whether a maliciously constructed ciphertext successfully bypassed the re-encryption check, creating a timing side-channel that undermines the IND-CCA security model.
+
+To prevent this exploit vector, key selection is handled through a constant-time bitwise conditional move ($\mathtt{CMOV}$) paradigm. Let $K_0$ represent the valid session key, $K_1$ represent the penalty seed key, and $b$ represent a single bit condition variable derived from a constant-time byte verification function:
+
+$$b = \begin{cases} 0 & \text{if } c = c' \\ 1 & \text{if } c \neq c' \end{cases}$$
+
+The multiplexing sequence constructs a uniform bitmask variable directly from the validation condition:
+
+$$\text{mask} = -b$$
+
+This maps a condition of 0 to a bitmask of $\mathtt{0x00000000}$ and a condition of 1 to a bitmask of $\mathtt{0xFFFFFFFF}$. The final key assignment is then evaluated across a sequence of bitwise operations:
+
+$$K_{\text{final}} = (\text{mask} \ \& \ K_1) \ | \ (\sim\text{mask} \ \& \ K_0)$$
+
+Because this selection sequence evaluates identical bitwise operations regardless of the truth value of the underlying condition, the instruction footprint and execution time remain completely invariant. This approach mathematically eliminates timing discrepancies and prevents leakage of ciphertext validity information through side-channels.
+
+\subsection{Entropy Loading and Independent OS Seed Providers}
+\label{sub:entropy_loading_os_seeds}
+
+The cryptographic strength of key generation and encapsulation depends on the quality of the initial seed data. If the underlying source of entropy is predictable, an adversary can reconstruct the deterministic derivation pathways and compromise the security of the public-key framework, regardless of the mathematical hardness of the Module-LWE problem.
+
+To ensure sufficient entropy, the system relies on an abstract interface that draws random seeds directly from the host operating system's core entropy pool. This setup acts as an independent system-level entropy provider, collecting non-deterministic physical events from hardware devices, interrupt timings, and storage access variations.
+
+The initialization phase loads 32 bytes of raw entropy from the system provider to serve as the baseline seed. Once captured, this entropy is immediately processed through a SHA3-512 block to expand and isolate the seed pools. This process generates independent, cryptographically secure inputs for the internal extendable-output functions. By decoupling seed accumulation from the core algorithm and routing it through validated system security hooks, the implementation ensures that its internal state remains unguessable to external observers.
 
 \section{Summary for Chapter 2}
+\label{sec:summary_chapter_2}
+
+This chapter established the theoretical and methodology framework for the proposed high-performance Module-LWE cryptographic library, detailing the specific structural and algorithmic choices that bridge foundational lattice mathematics with concrete architectural designs. By examining the mathematical composition of the CRYSTALS-Kyber public-key encapsulation scheme, the analysis demonstrated how Module-LWE strikes an optimal balance between the algebraic complexity of Ring-LWE and the memory overhead of standard LWE. The primary mathematical primitive chosen for accelerating polynomial multiplication is the incomplete Number Theoretic Transform (NTT). By halting the cyclotomic ring factorization at seven layers over the finite field $\mathbb{Z}_{3329}$, the transform maps polynomials into a structured collection of 128 independent quadratic trinomial fragments. This structural adjustment eliminates an entire layer of butterfly operations, replacing point-wise Hadamard products with a localized system of quadratic base multiplications.
+
+To sustain maximum arithmetic throughput within these transform layers, the framework relies on a combination of Montgomery and Barrett reduction techniques. Montgomery reduction maps wide intermediate products into a power-of-two radix domain, substituting expensive hardware division with register-level truncations and bit-shifts. Barrett reduction complements this process by utilizing a precomputed fractional inverse of the modulus to return general additive accumulations back to the canonical range without introducing fractional tracking errors. These scalar operators are further mapped to a parallel processing paradigm by leveraging Advanced Vector Extensions (AVX2 and AVX-512). The analysis highlighted how vectorizing the radix-2 butterfly requires transitioning from macro-layer execution across independent registers down to intra-register lane permutations once the operational stride length drops below the physical boundaries of the vector lanes.
+
+Finally, the chapter detailed the symmetric, sampling, and auxiliary primitives necessary to ensure both statistical correctness and side-channel resilience. Rejection sampling from SHAKE128 streams ensures a uniform distribution across the public matrix coordinates without modular bias, while a Centered Binomial Distribution provides zero-centered, finite-support noise for secret and error components. Communication overhead is mitigated through non-linear serialization techniques that quantize coefficient bit allocations directly into byte-aligned structures. Crucially, the theoretical validation of decapsulation performance relies on a constant-time multiplexing paradigm, using uniform bitmasks to isolate key selection paths and prevent timing side-channel leakage during ciphertext re-encryption checks. Together, these combined mathematical methodologies provide a comprehensive, secure blueprint that directly governs the concrete software architecture, memory layouts, and instruction optimization sequences implemented in the subsequent chapter.
