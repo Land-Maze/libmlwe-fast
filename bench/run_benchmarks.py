@@ -1,5 +1,6 @@
 import argparse
 import os
+import shlex
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -72,14 +73,14 @@ def main():
             print(f"Building configuration: {config['name']}")
             print("=" * 50)
 
-            run_command(f"cmake -B {base_dir}/build {config['cmake_flags']}")
-            run_command(f"cmake --build {base_dir}/build -j {args.threads}")
+            run_command(f"cmake -B {shlex.quote(base_dir + '/build')} {config['cmake_flags']}")
+            run_command(f"cmake --build {shlex.quote(base_dir + '/build')} -j {args.threads}")
 
             print(f"Running benchmark for {config['name']}...")
             xml_out = f"{bench_dir}/temp_{config['name'].replace(' ', '_')}.xml"
 
             run_command(
-                f"{binary_path} {config['filter']} -r xml -o {xml_out} --benchmark-samples {args.samples}"
+                f"{shlex.quote(binary_path)} {config['filter']} -r xml -o {shlex.quote(xml_out)} --benchmark-samples {args.samples}"
             )
 
             if not os.path.exists(xml_out):
