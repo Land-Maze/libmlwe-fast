@@ -55,8 +55,7 @@ The state vector's position is defined by the polar angle $\theta$ and the azimu
 \begin{figure}[htbp]
     \centering
     \includesvg[width=0.3\textwidth]{bloch_sphere.svg}
-    \caption{Bloch Sphere Visualisation. \newline\centering[Source: "Bloch sphere". Wikipedia. https://en.wikipedia.org/wiki/Bloch\_sphere.
-    12.11.2025]}
+    \caption{Bloch Sphere Visualisation. \newline\centering[Source: Nielsen \& Chuang~\cite{nielsen2010quantum}]}
     \label{fig:bloch_sphere_visualisation}
 \end{figure}
 
@@ -66,7 +65,7 @@ The state vector's position is defined by the polar angle $\theta$ and the azimu
 Two primary quantum algorithms necessitate the transition to Post-Quantum Cryptography (PQC):
 
 \subsubsection{Shor's Algorithm}
-Peter Shor introduced an algorithm that solves Integer Factorization and Discrete Logarithm problems in polynomial time.
+Peter Shor introduced an algorithm~\cite{shor1994algorithms} that solves Integer Factorization and Discrete Logarithm problems in polynomial time.
 For an RSA key of length $n$, classical sieving requires sub-exponential time, whereas Shor's algorithm requires only $O(n^2 (\log n) (\log \log n))$ gates.
 This effectively breaks RSA and Elliptic Curve Cryptography (ECC).
 
@@ -125,7 +124,7 @@ As shown in Figure~\ref{fig:lattice_visualisation}, this involves identifying th
 \subsection{Learning With Errors (LWE)}
 \label{subsec:lwe}
 
-The Learning With Errors (LWE) problem is essentially the cryptographic realization of the Closest Vector Problem (CVP).
+The Learning With Errors (LWE) problem, introduced by Regev~\cite{regev2005lattices}, is essentially the cryptographic realization of the Closest Vector Problem (CVP).
 It requires recovering a secret vector $\mathbf{s} \in \mathbb{Z}_q^n$ from a system of noisy linear equations:
 \[ A\mathbf{s} + \mathbf{e} = \mathbf{b} \pmod q \]
 where $A$ is a uniform matrix and $\mathbf{e}$ is a small error vector drawn from an error distribution $\chi$.
@@ -192,7 +191,7 @@ This noise prevents an adversary from using Gaussian elimination to recover the 
 \section{Module-LWE and Algebraic Structures}
 \label{sec:m_lwe_structures}
 
-To achieve the "Fast Implementation" goal of this thesis, we utilize Module-LWE (M-LWE). M-LWE balances the high security of standard LWE with the efficiency of structured variants like Ring-LWE\@.
+To achieve the "Fast Implementation" goal of this thesis, we utilize Module-LWE (M-LWE)~\cite{langlois2015worst}. M-LWE balances the high security of standard LWE with the efficiency of structured variants like Ring-LWE~\cite{LyubashevskyPR13}.
 
 The key innovation in M-LWE is the use of polynomial rings instead of integers.
 Specifically, we work over the ring $R_q = \mathbb{Z}_q[X] / \langle X^d + 1 \rangle$, where $d$ is typically 256 (same as in CRYSTALS-Kyber~\cite[page 4]{kyber_spec_2021}).

@@ -6,7 +6,7 @@ This chapter documents the software architecture and engineering decisions behin
 \section{Architectural Overview}
 \label{sec:arch_overview}
 
-The library follows a three-layer design that mirrors the mathematical structure of the Module-LWE problem. The KEM layer, residing in \texttt{crypto/}, exposes the public API through \texttt{mlwe-fast.h} and implements the Fujisaki-Okamoto transform that converts the IND-CPA primitive into an IND-CCA2 secure key encapsulation mechanism. Beneath it, the IND-CPA layer in \texttt{core/src/kem.c} and \texttt{core/src/indcpa.c} implements the underlying Module-LWE encryption scheme, including key pair generation, encryption, and decryption with compression. The arithmetic layer, distributed across the remaining files in \texttt{core/src/}, provides polynomial arithmetic over the ring $R_q = \mathbb{Z}_q[X]/(X^n + 1)$, including NTT-based multiplication, centered binomial distribution sampling, matrix generation, and SHA3/SHAKE hash functions.
+The library follows a three-layer design that mirrors the mathematical structure of the Module-LWE problem. The KEM layer, residing in \texttt{crypto/}, exposes the public API through \texttt{crypto/\allowbreak include/\allowbreak lml/\allowbreak mlwe-fast.h} and implements the Fujisaki-Okamoto transform that converts the IND-CPA primitive into an IND-CCA2 secure key encapsulation mechanism. Beneath it, the IND-CPA layer in \texttt{core/\allowbreak src/\allowbreak kem.c} and \texttt{core/\allowbreak src/\allowbreak indcpa.c} implements the underlying Module-LWE encryption scheme, including key pair generation, encryption, and decryption with compression. The arithmetic layer, distributed across the remaining files in \texttt{core/\allowbreak src/}, provides polynomial arithmetic over the ring $R_q = \mathbb{Z}_q[X]/(X^n + 1)$, including NTT-based multiplication, centered binomial distribution sampling, matrix generation, and SHA3\allowbreak/SHAKE hash functions.
 
 The codebase is split into two libraries. The \texttt{core/} directory builds a static library containing low-level primitives and the IND-CPA routines: NTT, polynomial arithmetic, CBD sampling, SHA3/SHAKE, matrix generation, and the CPA-secure encryption layer. The \texttt{crypto/} directory builds a shared library that provides the public API surface and links against \texttt{core}. Cryptographic state is passed through explicitly typed byte arrays and polynomial structures rather than hidden protocol state. The only persistent process-level state is the file descriptor cached by the operating-system randomness wrapper, which avoids reopening \texttt{/dev/urandom} for every seed request.
 
@@ -36,30 +36,33 @@ typedef struct {
 } mlwe_fast_polyvec;
 \end{lstlisting}
 
-For the Kyber512 parameter set ($K=2$), a \texttt{mlwe\_fast\_polyvec} occupies $2 \times 256 \times 2 = 1024$ bytes. Polynomial and byte-array temporaries in the arithmetic and KEM routines are stack-based, which keeps the main data flow explicit. The Keccak implementation, inherited from PQClean, allocates hash contexts internally and releases them through the corresponding context-release functions.
+For the Kyber512 parameter set ($K=2$), a \texttt{mlwe\_fast\_polyvec} occupies $2 \times 256 \times 2 = 1024$ bytes. Polynomial and byte-array temporaries in the arithmetic and KEM routines are stack-based, which keeps the main data flow explicit. The Keccak implementation, integrated from the PQClean reference implementation code at commit hash \texttt{3730b32}, allocates hash contexts internally using dynamic memory allocation for incremental and SHAKE APIs, while standard one-shot hash functions (like \texttt{sha3\_256} and \texttt{sha3\_512}) utilize stack-allocated states to avoid memory management overhead.
 
 \subsection{Cryptographic Parameters}
 \label{sub:cryptographic_params}
 
-The parameters are defined in \texttt{core/include/lml/params.h} and correspond to the Kyber512 security level:
+The parameters are defined in \texttt{core/\allowbreak include/\allowbreak lml/\allowbreak params.h} and correspond to the Kyber-512 security level, as summarized in Table~\ref{tab:crypto_params}:
 
-\begin{center}
-\begin{tabular}{ll}
-    \toprule
-    Parameter & Value \\
-    \midrule
-    Modulus $q$ & 3329 \\
-    NTT size $n$ & 256 \\
-    Module rank $K$ & 2 \\
-    Secret/noise parameter $\eta_1$ & 3 \\
-    Ciphertext noise parameter $\eta_2$ & 2 \\
-    Public key size & 800 bytes \\
-    Secret key size & 1632 bytes \\
-    Ciphertext size & 768 bytes \\
-    Shared secret size & 32 bytes \\
-    \bottomrule
-\end{tabular}
-\end{center}
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{ll}
+        \toprule
+        Parameter & Value \\
+        \midrule
+        Modulus $q$ & 3329 \\
+        NTT size $n$ & 256 \\
+        Module rank $K$ & 2 \\
+        Secret/noise parameter $\eta_1$ & 3 \\
+        Ciphertext noise parameter $\eta_2$ & 2 \\
+        Public key size & 800 bytes \\
+        Secret key size & 1632 bytes \\
+        Ciphertext size & 768 bytes \\
+        Shared secret size & 32 bytes \\
+        \bottomrule
+    \end{tabular}
+    \caption{Cryptographic parameters for the MLWE-Fast library, matching the Kyber-512 security level. [Source: Own Work]}
+    \label{tab:crypto_params}
+\end{table}
 
 \section{Core Algorithmic Implementations}
 \label{sec:core_algorithms}
@@ -67,7 +70,31 @@ The parameters are defined in \texttt{core/include/lml/params.h} and correspond 
 \subsection{Modular Reduction}
 \label{sub:modular_reduction}
 
-Two reduction strategies are employed, both declared in \texttt{core/include/lml/reduce.h} as static inline functions to allow aggressive compiler inlining. Montgomery reduction serves the NTT-domain arithmetic: with $R = 2^{16} = 65536$ and the inverse constant \texttt{MLWE\_FAST\_QINV = -3327}, it maps a 32-bit product to a centered representative congruent to $aR^{-1} \bmod q$ without invoking an expensive division instruction. Barrett reduction handles coefficient reduction after additions and during serialization paths: with precomputed multiplier $\mu = 20159$ and shift $k = 26$, it returns a small centered representative by approximating the quotient of division by $q$. Canonical representatives in $[0,q)$ are produced only where needed, for example before packing or compression. Both methods eliminate hardware division from the main arithmetic loops.
+Two modular reduction strategies are employed, both of which are declared in \texttt{core/}\allowbreak\texttt{in-clude/}\allowbreak\texttt{lml/}\allowbreak\texttt{re-duce.h} as static inline functions to allow compiler inlining. Montgomery reduction serves the NTT-domain arithmetic: with $R = 2^{16} = 65536$ and the inverse constant \texttt{MLWE\_FAST\_QINV = -3327}, it maps a 32-bit product to a centered representative congruent to $aR^{-1} \bmod q$ without invoking an expensive division instruction. Barrett reduction handles coefficient reduction after additions and during serialization paths: with precomputed multiplier $\mu = 20159$ and shift $k = 26$, it returns a representative in $[0,q]$ by approximating the quotient of division by $q$. Canonical representatives in $[0,q)$ are produced by subsequent operations where strictly needed, for example before packing or compression. Both methods eliminate hardware division from the main arithmetic loops.
+
+The C11 implementation of these reduction techniques is presented below:
+
+\begin{lstlisting}[language=C]
+static inline int16_t mlwe_fast_montgomery_reduce(const int32_t a) {
+    int32_t t;
+    int16_t m;
+
+    m = (int16_t)(a * MLWE_FAST_QINV);
+    t = (a - (int32_t)m * MLWE_FAST_Q) >> 16;
+
+    return (int16_t)t;
+}
+
+static inline int16_t mlwe_fast_barrett_reduce(const int16_t a) {
+    int32_t t;
+    int16_t v;
+
+    t = ((int32_t)a * MLWE_FAST_BARRETT_M) >> MLWE_FAST_BARRETT_K;
+    v = a - (int16_t)t * MLWE_FAST_Q;
+
+    return v;
+}
+\end{lstlisting}
 
 \subsection{Number Theoretic Transform}
 \label{sub:ntt}
@@ -76,12 +103,59 @@ The forward NTT (\texttt{mlwe\_fast\_ntt}) and inverse NTT (\texttt{mlwe\_fast\_
 
 Twiddle factors are precomputed in the \texttt{mlwe\_fast\_zetas} array of 128 entries, generated by \texttt{generate\_zetas.py}. The script computes powers of the NTT root $\zeta = 17$ in Montgomery form modulo $q = 3329$, stored in bit-reversed order. This eliminates runtime modular exponentiation and reduces the transform to simple table lookups and butterfly operations.
 
+The implementation of the forward NTT, using the Cooley-Tukey butterfly decomposition and Montgomery reductions, is presented below:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_ntt(int16_t r[MLWE_FAST_N]) {
+    unsigned int len, start, j, k;
+    int16_t zeta, t;
+
+    k = 1;
+    for (len = (MLWE_FAST_N >> 1); len >= 2; len >>= 1) {
+        for (start = 0; start < MLWE_FAST_N; start = j + len) {
+            zeta = mlwe_fast_zetas[k++];
+            for (j = start; j < start + len; j++) {
+                t = mlwe_fast_montgomery_reduce((int32_t)zeta * r[j + len]);
+                r[j + len] = r[j] - t;
+                r[j] = r[j] + t;
+            }
+        }
+    }
+}
+\end{lstlisting}
+
 \subsection{Polynomial Multiplication}
 \label{sub:poly_mult}
 
-Base multiplication in the NTT domain is performed by \texttt{mlwe\_fast\_poly\_basemul\_montgomery} in \texttt{core/src/poly.c}. Because Kyber uses an incomplete NTT, the multiplication is not a single scalar Hadamard product for every coefficient. The function processes coefficients in groups of four, using one twiddle factor for two adjacent quadratic products: one block uses $+\zeta$ and the paired block uses $-\zeta$. This implements multiplication in the quadratic residue fields produced by the incomplete transform while keeping the result in the NTT domain.
+Base multiplication in the NTT domain is performed by \texttt{mlwe\_fast\_poly\_\allowbreak basemul\_\allowbreak montgomery} in \texttt{core/src/poly.c}. Because Kyber uses an incomplete NTT, the multiplication is not a single scalar Hadamard product for every coefficient. The function processes coefficients in groups of four, using one twiddle factor for two adjacent quadratic products: one block uses $+\zeta$ and the paired block uses $-\zeta$. This implements multiplication in the quadratic residue fields produced by the incomplete transform while keeping the result in the NTT domain.
 
 For module operations, \texttt{mlwe\_fast\_polyvec\_basemul\_montgomery} computes the inner product of two polynomial vectors $\mathbf{a}, \mathbf{b} \in R_q^K$, accumulating $K$ pointwise products into a single polynomial. This is the core operation in computing $\mathbf{a}^T \cdot \mathbf{s}$ during key generation and encryption.
+
+The base multiplication routine in the NTT domain, executing the quadratic field expansion modulo $X^2 - \zeta$, is shown below:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_poly_basemul_montgomery(mlwe_fast_poly *r, const mlwe_fast_poly *a, const mlwe_fast_poly *b) {
+    for (int i = 0; i < MLWE_FAST_N / 4; i++) {
+        int16_t zeta = mlwe_fast_zetas[64 + i];
+
+        int16_t a0 = a->coeffs[4 * i + 0];
+        int16_t a1 = a->coeffs[4 * i + 1];
+        int16_t b0 = b->coeffs[4 * i + 0];
+        int16_t b1 = b->coeffs[4 * i + 1];
+
+        r->coeffs[4 * i + 0] = mlwe_fast_barrett_reduce(fqmul(a0, b0) + fqmul(fqmul(a1, b1), zeta));
+        r->coeffs[4 * i + 1] = mlwe_fast_barrett_reduce(fqmul(a0, b1) + fqmul(a1, b0));
+
+        a0 = a->coeffs[4 * i + 2];
+        a1 = a->coeffs[4 * i + 3];
+        b0 = b->coeffs[4 * i + 2];
+        b1 = b->coeffs[4 * i + 3];
+
+        r->coeffs[4 * i + 2] = mlwe_fast_barrett_reduce(fqmul(a0, b0) - fqmul(fqmul(a1, b1), zeta));
+        r->coeffs[4 * i + 3] = mlwe_fast_barrett_reduce(fqmul(a0, b1) + fqmul(a1, b0));
+    }
+}
+\end{lstlisting}
 
 \subsection{Centered Binomial Distribution Sampling}
 \label{sub:cbd_sampling_impl}
@@ -93,14 +167,14 @@ The input buffer provides $\eta \cdot n / 4$ bytes, from which bit pairs (for $\
 \subsection{Deterministic Polynomial Generation}
 \label{sub:poly_gen}
 
-The public matrix $\mathbf{A}$ is generated deterministically from a seed using SHAKE128, implemented in \texttt{core/src/poly\_gen.c}. The function \texttt{mlwe\_fast\_gen\_matrix\_poly} generates a single entry of $\mathbf{A}$ by absorbing a 32-byte seed together with row and column indices, then squeezing bytes and applying rejection sampling to produce uniform coefficients in $[0, q)$. Noise polynomials use SHAKE256 rather than SHAKE128: \texttt{mlwe\_fast\_polyvec\_getnoise\_eta1} and \texttt{mlwe\_fast\_polyvec\_getnoise\_eta2} append an 8-bit nonce to a 32-byte seed, expand the resulting string with SHAKE256, and pass the output to the CBD sampler.
+The public matrix $\mathbf{A}$ is generated deterministically from a seed using SHAKE128, implemented in \texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{poly\_gen.c}. The function \texttt{mlwe\_fast\_gen\_matrix\_poly} generates a single entry of $\mathbf{A}$ by absorbing a 32-byte seed together with column and row indices, then squeezing bytes and applying rejection sampling to produce uniform coefficients in $[0, q)$. Noise polynomials are generated using SHAKE256; the functions \texttt{mlwe\_}\allowbreak\texttt{fast\_}\allowbreak\texttt{polyvec\_}\allowbreak\texttt{get}\allowbreak\texttt{noise\_}\allowbreak\texttt{eta1} and \texttt{mlwe\_}\allowbreak\texttt{fast\_}\allowbreak\texttt{polyvec\_}\allowbreak\texttt{get}\allowbreak\texttt{noise\_}\allowbreak\texttt{eta2} append an 8-bit nonce to a 32-byte seed, expand the resulting string with SHAKE256, and pass the output to the CBD sampler. In vector noise generation routines, this nonce is incremented for each polynomial in the vector to ensure independent samples.
 
 This deterministic approach ensures that the same seed always produces the same polynomial, enabling the public matrix to be reconstructed from the public seed rather than transmitted explicitly.
 
 \subsection{Compression and Decompression}
 \label{sub:compression}
 
-To reduce ciphertext size, the library applies lossy compression to polynomial coefficients. The function \texttt{mlwe\_fast\_poly\_compress} maps 12-bit coefficients to 4-bit values for the ciphertext component $v$, with each coefficient $c$ mapped to $\lfloor c \cdot 16 / q \rceil \bmod 16$. The inverse operation \texttt{mlwe\_fast\_poly\_decompress} recovers the coefficient as $d = \lfloor c' \cdot q / 16 \rceil$. For the ciphertext component $u$, the function \texttt{mlwe\_fast\_polyvec\_compress} maps 12-bit coefficients to 10-bit values, with each coefficient $c$ mapped to $\lfloor c \cdot 1024 / q \rceil \bmod 1024$. The corresponding \texttt{mlwe\_fast\_polyvec\_decompress} reverses the 10-bit mapping.
+To reduce ciphertext size, the library applies lossy compression to polynomial coefficients. The function \texttt{mlwe\_fast\_poly\_compress} maps 12-bit coefficients to 4-bit values for the ciphertext component $v$, with each coefficient $c$ mapped to $\lfloor c \cdot 16 / q \rceil \bmod 16$. The inverse operation \texttt{mlwe\_fast\_poly\_decompress} recovers the coefficient as $d = \lfloor c' \cdot q / 16 \rceil$. For the ciphertext component $u$, the function \texttt{mlwe\_fast\_\allowbreak polyvec\_\allowbreak compress} maps 12-bit coefficients to 10-bit values, with each coefficient $c$ mapped to $\lfloor c \cdot 1024 / q \rceil \bmod 1024$. To avoid division instructions, \texttt{mlwe\_fast\_\allowbreak polyvec\_\allowbreak compress} implements a fast division-free fixed-point approximation (multiplying by $1290167$ and shifting right by $32$). The corresponding \texttt{mlwe\_fast\_polyvec\_decompress} reverses the 10-bit mapping.
 
 The compression introduces controlled error that remains within the decryption tolerance, while significantly reducing the serialized ciphertext size.
 
@@ -112,11 +186,11 @@ The \texttt{mlwe\_fast\_poly\_frommsg} function encodes a 32-byte (256-bit) mess
 \section{KEM and IND-CPA Execution Flow}
 \label{sec:kem_indcpa_flow}
 
-The IND-CPA key-generation routine first obtains 32 bytes of system randomness and expands them with SHA3-512 into a public seed and a noise seed. The public seed deterministically generates the matrix $\mathbf{A}$, while the noise seed generates the secret vector $\mathbf{s}$ and error vector $\mathbf{e}$ using $\eta_1=3$. Both $\mathbf{s}$ and $\mathbf{e}$ are transformed into the NTT domain. The public vector is then computed as $\mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e}$ using polynomial-vector base multiplication and Barrett reduction, and the serialized public key stores $\mathbf{t}$ followed by the public seed.
+The IND-CPA key-generation routine first obtains 32 bytes of system randomness and expands them with SHA3-512 into a public seed and a noise seed. The public seed deterministically generates the matrix $\mathbf{A}$, while the noise seed generates the secret vector $\mathbf{s}$ and error vector $\mathbf{e}$ using $\eta_1=3$. Both $\mathbf{s}$ and $\mathbf{e}$ are transformed into the NTT domain. The public vector is then computed as $\mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e}$ in the NTT domain. Because the polynomial-vector base multiplication accumulates products with a factor of $R^{-1}$ due to Montgomery reduction, the vector $\mathbf{A}\mathbf{s}$ must be scaled by $R$ using \texttt{mlwe\_fast\_poly\_tomont} before adding $\mathbf{e}$. The serialized public key stores the resulting $\mathbf{t}$ (which remains in the NTT domain) followed by the public seed.
 
-Encryption reconstructs the public matrix from the seed stored in the public key. It samples the ephemeral vector $\mathbf{r}$ using $\eta_1=3$, and the error terms $\mathbf{e}_1$ and $e_2$ using $\eta_2=2$. The vector $\mathbf{r}$ is transformed to the NTT domain and used to compute the ciphertext component $\mathbf{u} = \mathbf{A}^T\mathbf{r} + \mathbf{e}_1$. The second component $v$ is computed from the public key vector, the ephemeral vector, $e_2$, and the encoded message polynomial. Finally, $\mathbf{u}$ is compressed to 10 bits per coefficient and $v$ to 4 bits per coefficient, producing a 768-byte ciphertext.
+Encryption reconstructs the public matrix from the seed stored in the public key. It samples the ephemeral vector $\mathbf{r}$ using $\eta_1=3$, and the error terms $\mathbf{e}_1$ and $e_2$ using $\eta_2=2$. The vector $\mathbf{r}$ is transformed to the NTT domain and used to compute the ciphertext component $\mathbf{u} = \mathbf{A}^T\mathbf{r} + \mathbf{e}_1$. The second component $v$ is computed from the public key vector, the ephemeral vector, $e_2$, and the encoded message polynomial. Because the error terms and the message are defined in the coefficient domain, the intermediate products computed in the NTT domain ($\mathbf{A}^T\mathbf{r}$ and $\mathbf{t}^T\mathbf{r}$) are first converted back using the inverse NTT prior to executing the additions. Finally, $\mathbf{u}$ is compressed to 10 bits per coefficient and $v$ to 4 bits per coefficient, producing a 768-byte ciphertext.
 
-Decryption reverses the ciphertext packing, transforms $\mathbf{u}$ into the NTT domain, computes the inner product with the stored secret vector, and subtracts the result from $v$. The remaining polynomial is decoded back into the 32-byte message. This IND-CPA primitive is deterministic when supplied with fixed coins, which is essential for the explicit re-encryption check used by the KEM layer.
+Decryption reverses the ciphertext packing, transforms $\mathbf{u}$ into the NTT domain, computes the inner product with the stored secret vector, converts the result back to the coefficient domain using the inverse NTT, and subtracts it from $v$. The remaining polynomial is decoded back into the 32-byte message. This IND-CPA primitive is deterministic when supplied with fixed coins, which is essential for the explicit re-encryption check used by the KEM layer.
 
 The public KEM wrapper applies the Fujisaki-Okamoto transform. Encapsulation samples a 32-byte message, hashes the public key with SHA3-256, computes a 64-byte SHA3-512 output over the message and public-key hash, and uses the second half as deterministic encryption coins. The first half becomes the shared secret. Decapsulation decrypts the received ciphertext to recover a candidate message, recomputes the same SHA3-512 output, re-encrypts the candidate message, and compares the received ciphertext with the recomputed ciphertext. If the comparison succeeds, the shared secret is selected from the recomputed key material; otherwise, a fallback key is generated from the secret rejection seed $z$ and the received ciphertext using SHAKE256.
 
@@ -134,26 +208,26 @@ The 32-byte alignment of \texttt{mlwe\_fast\_poly} makes the polynomial layout c
 
 The KEM layer in \texttt{crypto/src/mlwe-fast.c} implements two constant-time primitives to resist timing attacks during ciphertext verification. The \texttt{verify} function compares two byte arrays of the same length using a byte-accumulation approach: each byte comparison produces a difference value that is OR-ed into a single accumulator, which is returned at the end. The accumulator is zero if and only if all bytes match, and the approach avoids early-exit branching that would leak information about the position of the first mismatch. The \texttt{cmov} function conditionally moves 32 bytes from a source to a destination using XOR masking. Given a condition \texttt{c} (0 or 1), it computes a mask \texttt{mask = -c}, yielding either all zeros or all ones, and applies the masked source/destination selection to each byte. When \texttt{c = 0}, the mask is zero and the destination remains unchanged; when \texttt{c = 1}, the mask is all ones and the source is copied. This avoids branching on secret-dependent data.
 
-During decapsulation, the implementation first computes the fallback secret with the rejection PRF and then uses \texttt{cmov} to overwrite it with the valid shared secret only if the re-encryption check succeeds. This ordering ensures that both success and failure paths execute the same high-level key-selection structure. The SHA3/SHAKE implementation (\texttt{core/src/fips202.c}) is derived from PQClean and operates on fixed-size state arrays without secret-dependent table lookups.
+During decapsulation, the implementation first computes the fallback secret with the rejection PRF and then uses \texttt{cmov} to overwrite it with the valid shared secret only if the re-encryption check succeeds. This ordering ensures that both success and failure paths execute the same high-level key-selection structure. The SHA3/SHAKE implementation (\texttt{core/src/fips202.c}) is integrated from the PQClean reference implementation code at commit hash \texttt{3730b32} and operates on fixed-size state arrays without secret-dependent table lookups.
 
 \section{Entropy Handling}
 \label{sec:entropy_handling}
 
-Randomness enters the implementation through the \texttt{randombytes} abstraction in \texttt{core/src/randombytes.c}. On the current platform, this wrapper opens \texttt{/dev/urandom}, caches the file descriptor, and repeatedly calls \texttt{read} until the requested number of bytes has been filled. Interrupted system calls are retried when \texttt{errno} is \texttt{EINTR}; other failures are reported to the caller.
+Randomness enters the implementation through the \texttt{randombytes} abstraction in \texttt{core/\allowbreak src/\allowbreak randombytes.c}. On the current platform, this wrapper opens \texttt{/dev/\allowbreak urandom}, caches the file descriptor, and repeatedly calls \texttt{read} until the requested number of bytes has been filled. Interrupted system calls are retried when \texttt{errno} is \texttt{EINTR}; other failures are reported to the caller.
 
-The KEM layer checks the randomness calls it performs directly, returning \texttt{MLWE\_FAST\_ERROR\_GENERIC} when entropy acquisition fails during encapsulation or when generating the secret rejection seed $z$. The IND-CPA keypair routine also calls \texttt{randombytes} for its initial seed, but its current internal API has a \texttt{void} return type and can only return early on failure. This means entropy-failure propagation from the internal keypair routine is a limitation of the present interface.
+The KEM layer checks the randomness calls it performs directly, returning \texttt{MLWE\_\allowbreak FAST\_\allowbreak ERROR\_\allowbreak GENERIC} when entropy acquisition fails during encapsulation or when generating the secret rejection seed $z$. The IND-CPA keypair routine also calls \texttt{randombytes} for its initial seed, but its current internal API has a \texttt{void} return type and can only return early on failure. This means entropy-failure propagation from the internal keypair routine is a limitation of the present interface.
 
 \section{Hash Functions}
 \label{sec:hash_functions}
 
-The library implements the SHA-3 family via the Keccak-f[1600] permutation, adapted from PQClean (\texttt{core/src/fips202.c}). The header \texttt{core/include/lml/fips202.h} exposes fixed-output SHA3 functions, one-shot SHAKE functions, and incremental SHAKE contexts. SHAKE128 is used for deterministic public-matrix generation through \texttt{shake128\_absorb} and \texttt{shake128\_squeezeblocks}. SHAKE256 is used for noise generation and for the rejection PRF that derives a fallback key from the secret seed $z$ and the received ciphertext. SHA3-256 hashes public keys, while SHA3-512 expands seeds and derives the KEM message/key material.
+The library integrates the SHA-3 family via the Keccak-f\allowbreak[1600] permutation, taken from the PQClean reference implementation code at commit hash \texttt{3730b32} (\texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{fips202.c}). The header \texttt{core/}\allowbreak\texttt{include/}\allowbreak\texttt{lml/}\allowbreak\texttt{fips202.h} exposes fixed-output SHA3 functions, one-shot SHAKE functions, and incremental SHAKE contexts. SHAKE128 is used for deterministic public-matrix generation through \texttt{shake128\_\allowbreak absorb} and \texttt{shake128\_\allowbreak squeezeblocks}. SHAKE256 is used for noise generation and for the rejection PRF that derives a fallback key from the secret seed $z$ and the received ciphertext using SHAKE256. SHA3-256 hashes public keys, while SHA3-512 expands seeds and derives the KEM message/key material.
 
 The rate parameters follow the FIPS 202 specification: SHAKE128 uses rate 168, SHAKE256 uses rate 136, SHA3-256 uses rate 136, SHA3-384 uses rate 104, and SHA3-512 uses rate 72.
 
 \section{Build System}
 \label{sec:build_system}
 
-The project uses CMake 4.0 or later. The root \texttt{CMakeLists.txt} defines the language standards (C11, C++17), compiler flags, and build options (\texttt{AVX2}, \texttt{AVX512}, \texttt{BUILD\_TESTS}, \texttt{BUILD\_BENCHMARK}), with warnings treated as errors. The \texttt{core/CMakeLists.txt} builds the static library from the \texttt{core/src/} sources with include path \texttt{core/include/}. The \texttt{crypto/CMakeLists.txt} builds the shared library from \texttt{crypto/src/mlwe-fast.c}, linking against \texttt{core}.
+The project build configuration is managed by CMake 4.0 or later. The root \texttt{CMake}\allowbreak\texttt{Lists.txt} file defines the C11 and C++17 language standards, configures compiler flags, and declares build options such as \texttt{AVX2}, \texttt{AVX512}, \texttt{BUILD\_}\allowbreak\texttt{TESTS}, and \texttt{BUILD\_}\allowbreak\texttt{BENCHMARK}, while treating compilation warnings as errors. The static library is built by \texttt{core/}\allowbreak\texttt{CMake}\allowbreak\texttt{Lists.txt} using the source files in \texttt{core/}\allowbreak\texttt{src/}, with headers exposed in \texttt{core/}\allowbreak\texttt{include/}. Finally, the shared library is constructed by \texttt{crypto/}\allowbreak\texttt{CMake}\allowbreak\texttt{Lists.txt} from \texttt{crypto/}\allowbreak\texttt{src/}\allowbreak\texttt{mlwe-}\allowbreak\texttt{fast.c}, linking directly against the \texttt{core} target.
 
 Release builds add \texttt{-march=native -mtune=native} for GCC and Clang, enabling auto-vectorization and instruction set optimization for the host CPU. The AVX2 and AVX-512 options define the corresponding \texttt{LML\_AVX2} or \texttt{LML\_AVX512} preprocessor macros; if both options are supplied, the current CMake logic selects the AVX-512 branch.
 
@@ -162,7 +236,7 @@ Testing uses Catch2 v3.4.0, fetched automatically via CMake's \texttt{FetchConte
 \section{Testing and Reference Validation}
 \label{sec:testing_reference_validation}
 
-The test suite is organized by primitive. Separate Catch2 files cover reduction, polynomial arithmetic, polynomial vectors, NTT roundtrips, CBD sampling, FIPS 202 hashes, deterministic polynomial generation, IND-CPA encryption, KEM roundtrips, and reference compatibility. This structure keeps failures localized: an error in byte packing or compression can be diagnosed separately from a failure in the KEM wrapper.
+The test suite is organized by primitive. Separate Catch2 test files cover reduction, polynomial arithmetic, polynomial vectors, NTT roundtrips, CBD sampling, FIPS 202 hashes, polynomial generation, IND-CPA encryption, KEM roundtrips, and compatibility with the reference implementation. This structure keeps failures localized: an error in byte packing or compression can be diagnosed separately from a failure in the KEM wrapper.
 
 The reference-compatibility test links against the official Kyber512 reference implementation. It generates a reference key pair, encapsulates with MLWE-Fast, and decapsulates with the reference implementation, requiring the resulting shared secrets to match byte-for-byte. This is a strong integration check because it validates public-key parsing, ciphertext formatting, compression choices, message encoding, and KEM-level key derivation across independent implementations.
 

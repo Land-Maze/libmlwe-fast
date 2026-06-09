@@ -1,14 +1,214 @@
 \chapter{Performance Evaluation}
 \label{ch:performance_evaluation}
 
+This chapter evaluates the performance of the developed \texttt{MLWE-Fast} library. We present the results of high-resolution micro-benchmarks comparing the library variants (Base C, AVX2, and AVX-512) against the official CRYSTALS-Kyber reference implementation. We provide a detailed description of the benchmarking methodology and environment, followed by statistical analysis of the gathered execution times, and conclude with an architectural analysis of the performance improvements and limitations.
+
+\section{Benchmarking Methodology and Environment}
+\label{sec:bench_methodology}
+
+\subsection{Hardware and Software Environment}
+\label{sub:bench_env}
+
+To ensure high accuracy and statistical significance, all benchmarks were executed using the Catch2 v3.4.0 micro-benchmarking framework. The benchmarking binary compiles the target functions and measures their execution times over a high number of iterations to estimate the mean and standard deviation, filtering out operating system scheduling noise. For each configuration, we collected $N = 5000$ samples to establish a clear performance distribution.
+
+The benchmarks were conducted on a modern consumer desktop platform running CachyOS, a performance-optimized Arch Linux derivative. The hardware specifications and compiler configuration of the benchmarking environment are summarized in Table~\ref{tab:bench_env}.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{ll}
+        \toprule
+        Component & Specification \\
+        \midrule
+        Processor (CPU) & AMD Ryzen 9 7900 12-Core Processor (Zen 4) \\
+        Microarchitecture & Zen 4 (AVX-512 double-pumped 256-bit pipelines) \\
+        Base Frequency & 3.7 GHz (Boost up to 5.4 GHz) \\
+        Caches & 64 KB L1 per core, 1 MB L2 per core, 64 MB shared L3 \\
+        Operating System & CachyOS (Linux kernel 7.0.10-2-cachyos) \\
+        C/C++ Compiler & GCC 16.1.1 (20260430) \\
+        Optimization Flags & \texttt{-O3 -march=native -mtune=native -DNDEBUG} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Benchmarking hardware and software environment details. [Source: Own Work]}
+    \label{tab:bench_env}
+\end{table}
+
+\subsection{Evaluated Cryptographic Operations}
+\label{sub:cryptographic_ops}
+
+The benchmarking suite evaluates the three primary operations of the Key Encapsulation Mechanism (KEM) to understand how low-level modifications propagate to the system level.
+
+\subsubsection{Keypair Generation}
+Keypair generation establishes the public key and secret key from random seeds. The routine generates a random 32-byte seed, expands it using SHA3-512, and derives the public seed and noise seed. The public seed is expanded via SHAKE128 block generation and rejection sampling to construct the public matrix $\mathbf{A}$. The noise seed is used to sample secret and error vectors $\mathbf{s}, \mathbf{e}$ under the Centered Binomial Distribution (CBD) with $\eta_1 = 3$. These vectors are transformed into the NTT domain using the Cooley-Tukey butterfly, and the public key vector is computed as $\mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e}$. The final public key is packed from the vector $\mathbf{t}$ and the public seed.
+
+\subsubsection{Encapsulation}
+Encapsulation takes the recipient's public key and generates a random shared secret along with a corresponding ciphertext. The routine samples a 32-byte message, hashes it with the public key hash using SHA3-512 to generate encryption coins and the shared secret. The matrix $\mathbf{A}$ is reconstructed from the public seed, and the ephemeral vector $\mathbf{r}$ is sampled using the coins and $\eta_1 = 3$. Noise vectors $\mathbf{e}_1$ and $e_2$ are sampled using $\eta_2 = 2$. The ephemeral vector is transformed to the NTT domain and multiplied with the matrix transpose to compute $\mathbf{u} = \mathbf{A}^T\mathbf{r} + \mathbf{e}_1$. The second component is computed as $v = \mathbf{t}^T\mathbf{r} + e_2 + \text{message}$ in the coefficient domain, involving inverse NTT transforms. The ciphertext components are compressed (10-bit and 4-bit lossy compression) and packed into a 768-byte buffer.
+
+\subsubsection{Decapsulation}
+Decapsulation extracts the shared secret from a ciphertext using the secret key. The receiver unpacks the ciphertext to recover $\mathbf{u}$ and $v$. The vector $\mathbf{u}$ is transformed into the NTT domain, and the inner product with the secret vector $\mathbf{s}$ is calculated. The result is converted to the coefficient domain using the inverse NTT and subtracted from $v$ to recover the candidate message. To resist timing attacks, the candidate message is re-encrypted using Fujisaki-Okamoto, and the resulting ciphertext is compared with the received ciphertext in constant time. A constant-time multiplexer (\texttt{cmov}) assigns either the computed shared secret or a pseudorandom fallback key (derived from a rejection seed $z$) based on the verification result.
+
+\subsection{Evaluated Library Variants}
+\label{sub:library_variants}
+
+We compile and test four distinct implementation configurations to measure the impact of static optimizations and explicit vectorization.
+
+\subsubsection{Kyber Reference Variant}
+This configuration uses the official, unoptimized reference implementation of Kyber-512 from the PQ-Crystals team. It acts as our control baseline, representing the typical performance of the standard portable C implementation compiled under the same optimization level.
+
+\subsubsection{MLWE-Fast Base Variant}
+This variant represents the portable C11 baseline of the \texttt{MLWE-Fast} library. It does not use manual vector intrinsics, but incorporates our division-free reduction algorithms, stack-allocated hash contexts, and 32-byte aligned polynomial structures to reduce memory management overheads.
+
+\subsubsection{MLWE-Fast AVX2 Variant}
+This configuration activates the compile-time SIMD acceleration using 256-bit Intel AVX2 intrinsics. It vectorizes polynomial additions and subtractions by processing 16 signed 16-bit coefficients simultaneously in single-instruction vector registers, replacing scalar loops with vectorized load-add-store instructions.
+
+\subsubsection{MLWE-Fast AVX-512 Variant}
+This configuration activates compile-time acceleration using 512-bit Intel AVX-512 intrinsics. It processes 32 coefficients simultaneously in single-instruction vector registers for addition and subtraction. Because Zen 4 implements AVX-512 using double-pumped 256-bit pipelines, it splits each 512-bit vector instruction across two 256-bit pipelines, providing functional AVX-512 capabilities without Intel's historical thermal penalties.
 
 \section{Benchmarking Results}
+\label{sec:bench_results}
 
+The results of the 5000-sample benchmark runs for all configurations are summarized in Table~\ref{tab:bench_results}. All execution times are reported in nanoseconds (ns), alongside the standard deviation and speedup ratios.
 
-\section{Comparison with Existing Implementations}
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lcccc}
+        \toprule
+        Variant & \shortstack{Mean\\(ns)} & \shortstack{Std. Dev.\\(ns)} & \shortstack{Speedup\\vs. Reference} & \shortstack{Speedup\\vs. Base} \\
+        \midrule
+        \multicolumn{5}{l}{\textbf{Keypair Generation}} \\
+        Reference & 20358.6 & 1032.5 & -- & -- \\
+        Base & 12724.5 & 1388.2 & $1.60\times$ & -- \\
+        AVX2 & 12355.8 & 653.1 & $1.65\times$ & $1.03\times$ \\
+        AVX-512 & 13058.3 & 1301.3 & $1.56\times$ & $0.97\times$ \\
+        \midrule
+        \multicolumn{5}{l}{\textbf{Encapsulation}} \\
+        Reference & 24216.7 & 712.2 & -- & -- \\
+        Base & 12059.8 & 619.2 & $2.01\times$ & -- \\
+        AVX2 & 12348.7 & 599.2 & $1.96\times$ & $0.98\times$ \\
+        AVX-512 & 12267.2 & 511.8 & $1.97\times$ & $0.98\times$ \\
+        \midrule
+        \multicolumn{5}{l}{\textbf{Decapsulation}} \\
+        Reference & 32146.2 & 1306.6 & -- & -- \\
+        Base & 15558.1 & 1392.1 & $2.07\times$ & -- \\
+        AVX2 & 15114.7 & 1093.7 & $2.13\times$ & $1.03\times$ \\
+        AVX-512 & 15326.8 & 664.4 & $2.10\times$ & $1.02\times$ \\
+        \bottomrule
+    \end{tabular}
+    \caption{Benchmarking results for CRYSTALS-Kyber operations ($N = 5000$ samples, times in nanoseconds). [Source: Own Work]}
+    \label{tab:bench_results}
+\end{table}
 
+To visualize the performance differences and distributions, the split plots for each operation are illustrated below. Figures~\ref{fig:plots_keypair}, \ref{fig:plots_encaps}, and \ref{fig:plots_decaps} present the bar plots (showing average execution times compared to the Reference baseline) alongside the box plots (depicting the full execution time distributions).
 
-\section{Limitations and Future Directions}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Keypair_bar.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Keypair_box.png}
+    \caption{Keypair generation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \label{fig:plots_keypair}
+\end{figure}
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Encapsulation_bar.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Encapsulation_box.png}
+    \caption{Encapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \label{fig:plots_encaps}
+\end{figure}
 
-\section{Summary for Chapter 4}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Decapsulation_bar.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Decapsulation_box.png}
+    \caption{Decapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \label{fig:plots_decaps}
+\end{figure}
+
+\section{Comparison and Architectural Analysis}
+\label{sec:comp_arch_analysis}
+
+The empirical results reveal two distinct trends: first, a massive performance improvement of the portable Base variant of \texttt{MLWE-Fast} over the reference implementation; second, a very marginal difference in performance when enabling the hand-crafted AVX2 and AVX-512 SIMD code paths.
+
+\subsection{Base C Variant vs. Reference Implementation}
+\label{sub:base_vs_ref}
+
+The portable C11 Base variant of \texttt{MLWE-Fast} achieves a speedup of $1.60\times$ in Keypair generation, $2.01\times$ in Encapsulation, and $2.07\times$ in Decapsulation compared to the Reference baseline. This substantial performance leap is attributed to three primary design decisions.
+
+\subsubsection{Division-Free Modular Reduction}
+The reference implementation utilizes generic, less optimized modular reduction paths. In contrast, our Base implementation relies on aggressively inlineable static routines for Montgomery and Barrett reductions (defined in \texttt{core/}\allowbreak\texttt{include/}\allowbreak\texttt{lml/}\allowbreak\texttt{reduce.h}). By replacing generic division-based calculations with fast multipliers and right shifts, we eliminate expensive integer division instructions in the critical butterfly arithmetic of the NTT and inverse NTT. Modern superscalar pipelines execute divisions with latencies exceeding 30 clock cycles; replacing them with multiplications and shifts reduces instruction dependency chain stalls.
+
+\subsubsection{Memory Layout and Cache Friendliness}
+The reference code frequently copies intermediate results and relies on deep call stacks. The \texttt{MLWE-Fast} library uses aligned data structures (32-byte alignment for polynomials) and stack-allocated states. The 32-byte boundary ensures that polynomial coefficient arrays align directly with the L1 cache lines (typically 64 bytes) on Zen 4 architectures, preventing split-line cache access penalties during loads and stores. Stack allocation avoids the heap-overhead latency associated with dynamic memory managers, preserving CPU cache locality.
+
+\subsubsection{Compiler-Driven Loop Optimizations}
+By providing simple, flat array structures and avoiding pointer aliasing through strict function signatures, we enable the GCC 16.1.1 compiler to perform aggressive loop unrolling, automatic vectorization, and registers allocation under the \texttt{-O3} flag. The clean modular separation in the code allows the compiler to inline reductions directly inside butterfly stages, optimizing the physical assembly code without requiring manually crafted assembly templates.
+
+\subsection{SIMD Variants vs. Base Variant}
+\label{sub:simd_vs_base}
+
+In contrast to the major speedup of the Base variant over the reference, the hand-crafted AVX2 and AVX-512 variants yield minor differences compared to the Base C implementation. The AVX2 variant shows a minor speedup of $1.03\times$ ($3\%$) on Keypair generation and $1.03\times$ ($3\%$) on Decapsulation. For Encapsulation, it exhibits a negligible slowdown ($0.98\times$). The AVX-512 variant behaves similarly, providing a $1.02\times$ ($2\%$) speedup on Decapsulation, a slight slowdown ($0.97\times$) on Keypair generation, and a minor slowdown ($0.98\times$) on Encapsulation.
+
+\subsection{SIMD Optimization Bottlenecks and Amdahl's Law}
+\label{sub:amdahls_law}
+
+This performance behavior is explained by Amdahl's Law, which states that the overall speedup of a system from optimizing a single component is limited by the fraction of time that component is actually used:
+\begin{equation}
+    S = \frac{1}{(1-P) + \frac{P}{s}}
+\end{equation}
+where $P$ is the parallelizable (or optimizable) fraction of the execution time, and $s$ is the speedup factor achieved on that specific fraction.
+
+In the current version of the \texttt{MLWE-Fast} library, manual SIMD intrinsics are *exclusively* applied to element-wise polynomial addition and subtraction (declared in \texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{poly.c}). These operations represent a trivial fraction of the total execution cycles in Kyber, specifically less than $5\%$ ($P \le 0.05$). Even if we assume an infinite acceleration on additions ($s \to \infty$), the maximum theoretical speedup is:
+\begin{equation}
+    S_{\text{max}} = \frac{1}{(1-0.05) + 0} \approx 1.0526
+\end{equation}
+This indicates that a $5\%$ speedup is the hard physical limit of optimizing additions and subtractions alone. This limit aligns perfectly with the observed $2\%\text{--}3\%$ performance differences.
+
+The core bottlenecks of the algorithm lie in other components, which are detailed below.
+
+\subsubsection{Symmetric Cryptography Bottleneck}
+Symmetric hash operations, specifically SHA-3, SHAKE-128, and SHAKE-256, absorb over $50\%$ of the total execution cycles. These operations are heavily used during the matrix generation phase (where columns of the public matrix $\mathbf{A}$ are generated via rejection sampling from a seed) and the noise polynomial generation phase (where seeds are expanded to sample coefficients under the Centered Binomial Distribution). Because these symmetric hashing routines are executed serially in all variants of the \texttt{MLWE-Fast} library, they represent an absolute execution floor that arithmetic optimizations cannot lower.
+
+\subsubsection{Number Theoretic Transform Bottleneck}
+The forward and inverse Number Theoretic Transform (NTT) computations, along with pointwise polynomial multiplications in the NTT domain, constitute approximately $25\%\text{--}30\%$ of the total computational cost. The butterflies, modular reductions, and bit-reversal shuffles are executed using scalar C implementations in all configurations. Since NTT-related operations represent the second largest execution block, leaving them scalar prevents the SIMD variants from demonstrating meaningful speedups.
+
+Because the Keccak functions, CBD sampling, and the NTT kernels remain scalar C code in all variants of \texttt{MLWE-Fast}, vectorizing addition and subtraction leaves the primary execution bottlenecks completely untouched.
+
+\subsection{Microarchitectural Implications of Zen 4 AVX-512}
+\label{sub:zen4_avx512_impl}
+
+Zen 4 implements AVX-512 instructions using a "double-pumped" approach. Rather than allocating dedicated 512-bit wide execution data paths in silicon, Zen 4 utilizes its existing 256-bit wide execution pipelines. When a 512-bit vector instruction is decoded, the hardware splits the instruction and schedules it to execute across two 256-bit pipelines over successive cycles.
+
+This microarchitectural design choice has several critical implications for our performance profiles.
+
+\subsubsection{Absence of Vector Throttling}
+Unlike older Intel architectures where wide 512-bit instruction blocks triggered severe frequency downclocking (throttling) to prevent power spikes, Zen 4 maintains stable operating frequencies. Because the physical hardware units are the same 256-bit elements used for standard scalar and AVX2 operations, the thermal output is balanced, and the CPU does not penalize overall clock speeds.
+
+\subsubsection{Throughput Equivalence to AVX2}
+Since a 512-bit operation occupies the 256-bit units for two execution passes, the raw arithmetic throughput of our AVX-512 addition loops (which processes 32 coefficients) is physically equivalent to running two separate 256-bit AVX2 addition instructions (which process 16 coefficients each). Consequently, the raw instruction execution times are comparable, explaining why the AVX-512 variant does not double the performance of the AVX2 variant.
+
+\subsubsection{Reduced Register Pressure and Masking}
+AVX-512 doubles the number of architectural vector registers from 16 (in AVX2) to 32 (in AVX-512). This helps compilers avoid register spilling (writing vector contents to the stack due to register starvation) in complex code. Additionally, AVX-512 supports advanced hardware masking and shuffling instructions. However, for simple, element-wise addition loops, register pressure is already low, and the compiler's auto-vectorization is highly optimal, causing the Base C variant (which is auto-vectorized by GCC 16.1.1) to run at parity with our hand-written intrinsics.
+
+\section{Limitations and Future Work}
+\label{sec:bench_limitations}
+
+\subsection{Current Optimization Scope Limits}
+\label{sub:opt_limits}
+The primary limitation of the current performance profile is the narrow scope of vectorization. The manual SIMD dispatch is currently bounded to low-overhead polynomial additions and subtractions. To unlock the full potential of AVX2 and AVX-512 architectures, the high-cost kernels must be target vectorized.
+
+\subsection{Vectorization of the Number Theoretic Transform}
+\label{sub:future_ntt}
+The forward and inverse NTT transforms can be vectorized using double-butterfly layouts. By using AVX2 or AVX-512 register shuffling instructions (such as \texttt{\_mm256\_}\allowbreak\texttt{shuffle\_}\allowbreak\texttt{epi8} and \texttt{\_mm512\_}\allowbreak\texttt{permutexvar\_}\allowbreak\texttt{epi16}), twiddle factors can be loaded into vectors and multiplied across multiple coefficients in parallel. Vectorizing the Cooley-Tukey and Gentleman-Sande kernels will target the $25\%\text{--}30\%$ runtime chunk, lifting the Amdahl's Law parallel ceiling.
+
+\subsection{Vectorization of the Keccak Permutation}
+\label{sub:future_keccak}
+The Keccak-f[1600] permutation processes state arrays of 64-bit lanes. By utilizing 256-bit or 512-bit vector units, the library can execute multiple independent Keccak evaluations in parallel (e.g. 4-way or 8-way parallel SHAKE128). This parallel hashing is particularly useful during matrix generation, where columns of the matrix $\mathbf{A}$ are generated independently. Accelerating the hash bottleneck will directly resolve the primary performance limit of the library.
+
+\section{Summary}
+\label{sec:bench_summary}
+
+In this chapter, we performed a high-resolution performance evaluation of the \texttt{MLWE-}\allowbreak\texttt{Fast} library on an AMD Ryzen 9 7900 CPU. The portable Base C variant achieved a speedup of $1.60\times$ for Keypair, $2.01\times$ for Encapsulation, and $2.07\times$ for Decapsulation compared to the CRYSTALS-Kyber reference implementation. These gains are driven by division-free modular reduction, optimized memory layouts, and aggressive compiler optimizations under the GCC 16.1.1 \texttt{-O3} level. 
+
+However, hand-crafted AVX2 and AVX-512 variants yielded very limited speedups ($2\%\text{--}3\%$) over the Base C variant. Architectural analysis, framed around Amdahl's Law, indicates that because SIMD acceleration is currently limited to polynomial additions and subtractions, the primary computational bottlenecks (Keccak hashes and NTT transforms) remain scalar. Zen 4's double-pumped AVX-512 execution profile results in arithmetic throughput comparable to AVX2, though it avoids frequency downclocking. Future work will focus on vectorizing Keccak and NTT modules to fully exploit high-performance SIMD registers.

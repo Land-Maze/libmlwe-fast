@@ -3,18 +3,18 @@
 \markboth{Introduction}{Introduction}
 
 The transition towards Post-Quantum Cryptography (PQC) is driven by the potential of quantum computers to break traditional asymmetric encryption.
-Standard algorithms like RSA and ECC are vulnerable to Shor's algorithm, which solves the underlying mathematical problems in polynomial time.
-In response, the National Institute of Standards and Technology (NIST) has spearheaded a process to standardize algorithms resistant to quantum attacks.
+Standard algorithms like RSA and ECC are vulnerable to Shor's algorithm~\cite{shor1994algorithms}, which solves the underlying mathematical problems in polynomial time.
+In response, the National Institute of Standards and Technology (NIST) has spearheaded a process to standardize algorithms resistant to quantum attacks~\cite{fips203}.
 
 Lattice-based cryptography is a primary focus of this standardization, particularly schemes based on the Learning With Errors (LWE) problem.
-While LWE offers high security, its implementation in practical systems is often hindered by large memory requirements $O(n^2 \log q)$ for keys, contributing to kilobyte-sized public keys for modest security levels~\cite{Lindner2011-wg}
+While LWE offers high security, its implementation in practical systems is often hindered by large memory requirements $O(n^2 \log q)$ for keys, contributing to kilobyte-sized public keys for modest security levels~\cite{Lindner2011-wg}.
 The Module-LWE (M-LWE) variant addresses these limitations by utilizing structures (such as polynomial rings) that allow for smaller keys and faster computations while maintaining similar security levels to regular LWE\@.
 
 This thesis explores the optimization and fast implementation of M-LWE\@.
-We specifically focus on the mathematical structures used in the CRYSTALS-Kyber algorithm, analyzing how the Number Theoretic Transform (NTT) and vectorized instructions (SIMD Instructions) can be leveraged to achieve high-speed execution.
+We specifically focus on the mathematical structures used in the CRYSTALS-Kyber algorithm~\cite{kyber_spec_2021}, analyzing how the Number Theoretic Transform (NTT) and vectorized instructions (SIMD Instructions) can be leveraged to achieve high-speed execution.
 By optimizing these core components, we aim to demonstrate that M-LWE provides a robust and efficient solution for secure digital communication in the post-quantum era.
 
-The goal of thesis is to implement and optimize the core operations of M-LWE based cryptographic schemes, with a focus on the CRYSTALS-Kyber algorithm.
+The goal of this thesis is to implement and optimize the core operations of M-LWE based cryptographic schemes, with a focus on the CRYSTALS-Kyber algorithm.
 We will analyze the mathematical foundations, implement efficient algorithms, and evaluate performance on modern hardware.
 
 The structure of this thesis is organized as follows.
