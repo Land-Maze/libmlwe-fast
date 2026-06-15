@@ -1,7 +1,7 @@
 \chapter{Performance Evaluation}
 \label{ch:performance_evaluation}
 
-This chapter evaluates the performance of the developed \texttt{MLWE-Fast} library. We present the results of high-resolution micro-benchmarks comparing the library variants (Base C, AVX2, and AVX-512) against the official CRYSTALS-Kyber reference implementation. We provide a detailed description of the benchmarking methodology and environment, followed by statistical analysis of the gathered execution times, and conclude with an architectural analysis of the performance improvements and limitations.
+This chapter evaluates the performance of the developed \texttt{MLWE-}\allowbreak\texttt{Fast} library. The results of high-resolution micro-benchmarks comparing the library variants (Base C, AVX2, and AVX-512) against the official CRYSTALS-Kyber reference implementation are presented. A detailed description of the benchmarking methodology and environment is provided, followed by statistical analysis of the gathered execution times, and an architectural analysis of the performance improvements and limitations.
 
 \section{Benchmarking Methodology and Environment}
 \label{sec:bench_methodology}
@@ -9,7 +9,7 @@ This chapter evaluates the performance of the developed \texttt{MLWE-Fast} libra
 \subsection{Hardware and Software Environment}
 \label{sub:bench_env}
 
-To ensure high accuracy and statistical significance, all benchmarks were executed using the Catch2 v3.4.0 micro-benchmarking framework. The benchmarking binary compiles the target functions and measures their execution times over a high number of iterations to estimate the mean and standard deviation, filtering out operating system scheduling noise. For each configuration, we collected $N = 5000$ samples to establish a clear performance distribution.
+To ensure high accuracy and statistical significance, all benchmarks were executed using the Catch2 v3.4.0 micro-benchmarking framework. The benchmarking binary compiles the target functions and measures their execution times over a high number of iterations to estimate the mean and standard deviation, filtering out operating system scheduling noise. For each configuration, a dataset of $N = 5000$ samples was collected to establish a clear performance distribution.
 
 The benchmarks were conducted on a modern consumer desktop platform running CachyOS, a performance-optimized Arch Linux derivative. The hardware specifications and compiler configuration of the benchmarking environment are summarized in Table~\ref{tab:bench_env}.
 
@@ -49,13 +49,13 @@ Decapsulation extracts the shared secret from a ciphertext using the secret key.
 \subsection{Evaluated Library Variants}
 \label{sub:library_variants}
 
-We compile and test four distinct implementation configurations to measure the impact of static optimizations and explicit vectorization.
+Four distinct implementation configurations are compiled and evaluated to measure the impact of static optimizations and explicit vectorization.
 
 \subsubsection{Kyber Reference Variant}
-This configuration uses the official, unoptimized reference implementation of Kyber-512 from the PQ-Crystals team. It acts as our control baseline, representing the typical performance of the standard portable C implementation compiled under the same optimization level.
+This configuration uses the official, unoptimized reference implementation of Kyber-512 from the PQ-Crystals team. It acts as the control baseline, representing the typical performance of the standard portable C implementation compiled under the same optimization level.
 
 \subsubsection{MLWE-Fast Base Variant}
-This variant represents the portable C11 baseline of the \texttt{MLWE-Fast} library. It does not use manual vector intrinsics, but incorporates our division-free reduction algorithms, stack-allocated hash contexts, and 32-byte aligned polynomial structures to reduce memory management overheads.
+This variant represents the portable C11 baseline of the \texttt{MLWE-}\allowbreak\texttt{Fast} library. It does not use manual vector intrinsics, but incorporates division-free reduction algorithms, stack-allocated hash contexts, and 32-byte aligned polynomial structures to reduce memory management overheads.
 
 \subsubsection{MLWE-Fast AVX2 Variant}
 This configuration activates the compile-time SIMD acceleration using 256-bit Intel AVX2 intrinsics. It vectorizes polynomial additions and subtractions by processing 16 signed 16-bit coefficients simultaneously in single-instruction vector registers, replacing scalar loops with vectorized load-add-store instructions.
@@ -137,13 +137,13 @@ The empirical results reveal two distinct trends: first, a massive performance i
 The portable C11 Base variant of \texttt{MLWE-Fast} achieves a speedup of $1.60\times$ in Keypair generation, $2.01\times$ in Encapsulation, and $2.07\times$ in Decapsulation compared to the Reference baseline. This substantial performance leap is attributed to three primary design decisions.
 
 \subsubsection{Division-Free Modular Reduction}
-The reference implementation utilizes generic, less optimized modular reduction paths. In contrast, our Base implementation relies on aggressively inlineable static routines for Montgomery and Barrett reductions (defined in \texttt{core/}\allowbreak\texttt{include/}\allowbreak\texttt{lml/}\allowbreak\texttt{reduce.h}). By replacing generic division-based calculations with fast multipliers and right shifts, we eliminate expensive integer division instructions in the critical butterfly arithmetic of the NTT and inverse NTT. Modern superscalar pipelines execute divisions with latencies exceeding 30 clock cycles; replacing them with multiplications and shifts reduces instruction dependency chain stalls.
+The reference implementation utilizes generic, less optimized modular reduction paths. In contrast, the Base implementation relies on aggressively inlineable static routines for Montgomery and Barrett reductions (defined in \texttt{core/}\allowbreak\texttt{include/}\allowbreak\texttt{lml/}\allowbreak\texttt{reduce.h}). By replacing generic division-based calculations with fast multipliers and right shifts, expensive integer division instructions are eliminated in the critical butterfly arithmetic of the NTT and inverse NTT. Modern superscalar pipelines execute divisions with latencies exceeding 30 clock cycles; replacing them with multiplications and shifts reduces instruction dependency chain stalls.
 
 \subsubsection{Memory Layout and Cache Friendliness}
-The reference code frequently copies intermediate results and relies on deep call stacks. The \texttt{MLWE-Fast} library uses aligned data structures (32-byte alignment for polynomials) and stack-allocated states. The 32-byte boundary ensures that polynomial coefficient arrays align directly with the L1 cache lines (typically 64 bytes) on Zen 4 architectures, preventing split-line cache access penalties during loads and stores. Stack allocation avoids the heap-overhead latency associated with dynamic memory managers, preserving CPU cache locality.
+The reference code frequently copies intermediate results and relies on deep call stacks. The \texttt{MLWE-}\allowbreak\texttt{Fast} library uses aligned data structures (32-byte alignment for polynomials) and stack-allocated states. The 32-byte boundary ensures that polynomial coefficient arrays align directly with the L1 cache lines (typically 64 bytes) on Zen 4 architectures, preventing split-line cache access penalties during loads and stores. Stack allocation avoids the heap-overhead latency associated with dynamic memory managers, preserving CPU cache locality.
 
 \subsubsection{Compiler-Driven Loop Optimizations}
-By providing simple, flat array structures and avoiding pointer aliasing through strict function signatures, we enable the GCC 16.1.1 compiler to perform aggressive loop unrolling, automatic vectorization, and registers allocation under the \texttt{-O3} flag. The clean modular separation in the code allows the compiler to inline reductions directly inside butterfly stages, optimizing the physical assembly code without requiring manually crafted assembly templates.
+By providing simple, flat array structures and avoiding pointer aliasing through strict function signatures, the GCC 16.1.1 compiler is enabled to perform aggressive loop unrolling, automatic vectorization, and register allocation under the \texttt{-O3} flag. The clean modular separation in the code allows the compiler to inline reductions directly inside butterfly stages, optimizing the physical assembly code without requiring manually crafted assembly templates.
 
 \subsection{SIMD Variants vs. Base Variant}
 \label{sub:simd_vs_base}
@@ -159,7 +159,7 @@ This performance behavior is explained by Amdahl's Law, which states that the ov
 \end{equation}
 where $P$ is the parallelizable (or optimizable) fraction of the execution time, and $s$ is the speedup factor achieved on that specific fraction.
 
-In the current version of the \texttt{MLWE-Fast} library, manual SIMD intrinsics are *exclusively* applied to element-wise polynomial addition and subtraction (declared in \texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{poly.c}). These operations represent a trivial fraction of the total execution cycles in Kyber, specifically less than $5\%$ ($P \le 0.05$). Even if we assume an infinite acceleration on additions ($s \to \infty$), the maximum theoretical speedup is:
+In the current version of the \texttt{MLWE-Fast} library, manual SIMD intrinsics are \textit{exclusively} applied to element-wise polynomial addition and subtraction (declared in \texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{poly.c}). These operations represent a trivial fraction of the total execution cycles in Kyber, specifically less than $5\%$ ($P \le 0.05$). Even if we assume an infinite acceleration on additions ($s \to \infty$), the maximum theoretical speedup is:
 \begin{equation}
     S_{\text{max}} = \frac{1}{(1-0.05) + 0} \approx 1.0526
 \end{equation}
@@ -209,6 +209,6 @@ The Keccak-f[1600] permutation processes state arrays of 64-bit lanes. By utiliz
 \section{Summary}
 \label{sec:bench_summary}
 
-In this chapter, we performed a high-resolution performance evaluation of the \texttt{MLWE-}\allowbreak\texttt{Fast} library on an AMD Ryzen 9 7900 CPU. The portable Base C variant achieved a speedup of $1.60\times$ for Keypair, $2.01\times$ for Encapsulation, and $2.07\times$ for Decapsulation compared to the CRYSTALS-Kyber reference implementation. These gains are driven by division-free modular reduction, optimized memory layouts, and aggressive compiler optimizations under the GCC 16.1.1 \texttt{-O3} level. 
+In this chapter, a high-resolution performance evaluation of the \texttt{MLWE-}\allowbreak\texttt{Fast} library was performed on an AMD Ryzen 9 7900 CPU. The portable Base C variant achieved a speedup of $1.60\times$ for Keypair, $2.01\times$ for Encapsulation, and $2.07\times$ for Decapsulation compared to the CRYSTALS-Kyber reference implementation. These gains are driven by division-free modular reduction, optimized memory layouts, and aggressive compiler optimizations under the GCC 16.1.1 \texttt{-O3} level.
 
 However, hand-crafted AVX2 and AVX-512 variants yielded very limited speedups ($2\%\text{--}3\%$) over the Base C variant. Architectural analysis, framed around Amdahl's Law, indicates that because SIMD acceleration is currently limited to polynomial additions and subtractions, the primary computational bottlenecks (Keccak hashes and NTT transforms) remain scalar. Zen 4's double-pumped AVX-512 execution profile results in arithmetic throughput comparable to AVX2, though it avoids frequency downclocking. Future work will focus on vectorizing Keccak and NTT modules to fully exploit high-performance SIMD registers.

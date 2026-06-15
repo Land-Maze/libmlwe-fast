@@ -1,8 +1,7 @@
 \chapter{Theoretical Background}
 \label{ch:theoretical_background}
 
-This chapter establishes the mathematical and computational foundations necessary for this thesis.
-We begin by defining the complexity classes that underpin modern cryptography, analyze the specific threats posed by quantum computing, and finally detail the lattice-based structures and algorithms-specifically Module-LWE and the Number Theoretic Transform that gives secure and efficient post-quantum communication.
+This chapter establishes the mathematical and computational foundations necessary for this thesis. It begins by defining the complexity classes that underpin modern cryptography, analyzes the specific threats posed by quantum computing, and finally details the lattice-based structures and algorithms, specifically Module-LWE and the Number Theoretic Transform, that enable secure and efficient post-quantum communication.
 
 \section{Cryptography and Computational Hardness: P vs NP Problem}
 \label{sec:cryptography_fundamentals}
@@ -10,7 +9,7 @@ We begin by defining the complexity classes that underpin modern cryptography, a
 The primary objective of modern cryptography is to ensure confidentiality, integrity, and authenticity (the CIA triad) in the presence of adversaries.
 Public-key cryptography (PKC) relies on mathematical functions that are easy to compute in one direction but computationally infeasible to invert without a specific private key.
 
-To understand "infeasibility," we must define the underlying computational complexity classes.
+To understand "infeasibility," the underlying computational complexity classes must be defined.
 The P vs NP problem is a major unsolved question in theoretical computer science that asks whether every problem whose solution can be quickly verified can also be quickly solved~\cite{millennium_p_vs_np}.
 This distinction is fundamental to the existence of modern cryptography.
 
@@ -121,7 +120,7 @@ Formally, given a basis $\mathbf{B}$ and a target $\mathbf{t}$, the goal is to f
 
 As shown in Figure~\ref{fig:lattice_visualisation}, this involves identifying the point $\mathbf{z}$ (green dot) that is nearest to the target point $\mathbf{t}$ (pink dot).
 
-\subsection{Learning With Errors (LWE)}
+\subsection{Learning With Errors}
 \label{subsec:lwe}
 
 The Learning With Errors (LWE) problem, introduced by Regev~\cite{regev2005lattices}, is essentially the cryptographic realization of the Closest Vector Problem (CVP).
@@ -203,9 +202,9 @@ This reduction in storage and the resulting speed increase in arithmetic operati
 
 \subsection{The Ring Structure}
 \label{subsec:the-ring-structure}
-We operate over the ring $R_q = \mathbb{Z}_q[X] / \langle X^d + 1 \rangle$, where $d=256$ is a power of 2.
+Computations are defined over the ring $R_q = \mathbb{Z}_q[X] / \langle X^d + 1 \rangle$, where $d=256$ is a power of 2.
 In this setting, elements are not single numbers but polynomials of degree $d-1$.
-This structure allows us to represent the public matrix $A$ in a compressed form, significantly reducing memory usage from kilobyte-sized keys to compact polynomial representations.
+This structure allows the public matrix $A$ to be represented in a compressed form, significantly reducing memory usage from kilobyte-sized keys to compact polynomial representations.
 
 \subsubsection{Polynomial Representation}
 Each element in $R_q$ is represented as a polynomial:
@@ -213,7 +212,7 @@ Each element in $R_q$ is represented as a polynomial:
 where $a_i \in \mathbb{Z}_q$.
 Polynomial addition and multiplication are performed modulo $X^d + 1$ and $q$.
 
-Additionally, the matrix-vector multiplication in M-LWE involves polynomial multiplications, which can be optimized using the Number Theoretic Transform (NTT), as discussed in Section~\ref{sec:ntt}.
+Additionally, the matrix-vector multiplication in M-LWE involves polynomial multiplications, which can be optimized using the Number Theoretic Transform, as discussed in Section~\ref{sec:ntt}.
 
 \subsection{Module-LWE Definition}
 \label{subsec:module-lwe-definition}
@@ -221,7 +220,7 @@ In M-LWE, the secret $\mathbf{s}$ is a vector (module) of rank $k$ over the ring
 The defining equation becomes:
 \[ \mathbf{b} = A\mathbf{s} + \mathbf{e} \in R_q^k \]
 where matrix multiplication involves polynomial multiplication.
-The parameter $k$ allows us to tune security: Kyber-512 uses $k=2$, while Kyber-768 uses $k=3$.
+The parameter $k$ allows security to be tuned: Kyber-512 uses $k=2$, while Kyber-768 uses $k=3$.
 With increased $k$, the security level rises, but so does computational complexity.
 
 \section{The Number Theoretic Transform (NTT)}
@@ -250,7 +249,7 @@ This thesis focuses on the \textbf{Negacyclic NTT}, which avoids zero-padding by
 \label{subsubsec:negacyclic_ntt}
 
 For rings of the form $R_q = \mathbb{Z}_q[X] / \langle X^d + 1 \rangle$, the standard cyclic NTT is not directly applicable without padding~\cite{guide_to_ntt}.
-Instead, we utilize the \textbf{negacyclic NTT}, also known as the negative wrapped convolution.
+Instead, the scheme utilizes the \textbf{negacyclic NTT}, also known as the negative wrapped convolution.
 As defined in Equation~\ref{eq:nwc}, the negacyclic convolution $NWC(x)$ of two polynomials $G(x)$ and $H(x)$ is their product reduced modulo $X^d + 1$:
 
 \begin{equation}
@@ -258,7 +257,7 @@ As defined in Equation~\ref{eq:nwc}, the negacyclic convolution $NWC(x)$ of two 
     NWC(x) = Y(x) \pmod{X^d + 1}
 \end{equation}
 
-By utilizing this specialized transform, we can perform the polynomial multiplication bottleneck in $O(d \log d)$ time without doubling the length of the input vectors through zero-padding.
+By utilizing this specialized transform, the polynomial multiplication bottleneck can be performed in $O(d \log d)$ time without doubling the length of the input vectors through zero-padding.
 This is achieved by using a primitive $2d$-th root of unity $\zeta$ to evaluate the polynomials at the roots of the cyclotomic polynomial $\Phi_{2d}(X) = X^d + 1$.
 
 \begin{figure}[htbp]
@@ -288,12 +287,7 @@ Once transformed, the multiplication of two polynomials $f$ and $g$ is simplifie
     \text{NTT}(f \cdot g) = \text{NTT}(f) \circ \text{NTT}(g)
 \end{equation}
 
-\section{Summary}
+\section{Summary for Chapter 1}
 \label{sec:summary_chapter_1}
 
-This chapter established the theoretical framework for the thesis.
-We reviewed the computational hardness assumptions that underpin modern cryptography and analyzed why the P vs NP problem is central to security.
-We identified the existential threat posed by quantum algorithms, specifically Shor's and Grover's, and presented Lattice-based cryptography as the robust solution.
-We detailed the transition from standard LWE to Module-LWE, highlighting how the algebraic structure of polynomial rings offers superior efficiency.
-Finally, we introduced the Number Theoretic Transform (NTT) as the essential mathematical tool for optimizing these schemes.
-The following chapters will build upon these foundations to design, implement, and benchmark a high-speed M-LWE cryptographic library.
+In summary, this chapter established the theoretical framework for the thesis. The discussion reviewed the computational hardness assumptions that underpin modern cryptography and analyzed the centrality of the P vs NP problem to security. The existential threat posed by quantum algorithms, specifically those of Shor and Grover, was identified, presenting lattice-based cryptography as a robust solution. The transition from standard LWE to Module-LWE was detailed, highlighting how the algebraic structure of polynomial rings offers superior computational efficiency. Finally, the Number Theoretic Transform (NTT) was introduced as the essential mathematical tool for optimizing these schemes. The subsequent chapters build upon these foundations to design, implement, and evaluate the high-performance Module-LWE library.

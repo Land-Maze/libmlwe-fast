@@ -88,7 +88,7 @@ The forward transform uses a Cooley-Tukey (CT) butterfly, which applies the twid
 \subsection{Twiddle Factors and Bit-Reversal Permutations}
 \label{sub:twiddle_factors_bit_reversal}
 
-The distribution of primitive roots of unity across successive NTT stages is dictated by a bit-reversal indexing methodology. The transform operates over $\mathbb{Z}_{3329}$ using the primitive $256$-th root of unity $\zeta = 17$, which satisfies $\zeta^{256} \equiv 1 \pmod{3329}$. The specific twiddle factor assigned to each butterfly operation is governed by the bit-reversal function $\text{rev}(k)$, which maps an integer index to its exact mirror reflection over a 7-bit space. This arrangement ensures that the mathematical arguments fed into each butterfly stage align precisely with the sub-rings generated during the factorization of the cyclotomic polynomial.
+The distribution of primitive roots of unity across successive NTT stages is dictated by a bit-reversal indexing methodology. The transform operates over $\mathbb{Z}_{3329}$ using the primitive $256$-th root of unity $\zeta = 17$, which satisfies $\zeta^{256} \equiv 1 \pmod{3329}$. The specific twiddle factor assigned to each butterfly operation is governed by the bit-reversal function $\text{rev}(k)$, which maps an integer index to its exact mirror reflection over a 7-bit space. This arrangement ensures that the arguments fed into each butterfly stage align precisely with the sub-rings generated during the factorization of the cyclotomic polynomial.
 
 \subsection{Incomplete NTT Variants}
 \label{sub:incomplete_ntt_variants}
