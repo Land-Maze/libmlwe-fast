@@ -107,3 +107,25 @@ int mlwe_fast_kem_decaps(uint8_t* ss, const uint8_t* ct, const uint8_t* sk) {
 
     return MLWE_FAST_ERROR_NONE;
 }
+
+const char* mlwe_fast_version(void) {
+    return "0.1.0";
+}
+
+void mlwe_fast_kem_indcpa_keypair(uint8_t pk[MLWE_FAST_PUBLICKEYBYTES],
+                                  uint8_t sk[MLWE_FAST_INDCPA_SECRETKEYBYTES]) {
+    mlwe_fast_indcpa_keypair(pk, sk);
+}
+
+void mlwe_fast_kem_indcpa_enc(uint8_t c[MLWE_FAST_CIPHERTEXTBYTES],
+                              const uint8_t m[32],
+                              const uint8_t pk[MLWE_FAST_PUBLICKEYBYTES],
+                              const uint8_t coins[32]) {
+    mlwe_fast_indcpa_enc(c, m, pk, coins);
+}
+
+void mlwe_fast_kem_indcpa_dec(uint8_t m[32],
+                              const uint8_t c[MLWE_FAST_CIPHERTEXTBYTES],
+                              const uint8_t sk[MLWE_FAST_INDCPA_SECRETKEYBYTES]) {
+    mlwe_fast_indcpa_dec(m, c, sk);
+}

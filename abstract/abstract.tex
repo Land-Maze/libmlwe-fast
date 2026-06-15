@@ -1,0 +1,35 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[english]{babel}
+\usepackage[a4paper,top=2.5cm,bottom=2.5cm,left=3cm,right=3cm]{geometry}
+\usepackage{amsmath, amssymb, amsfonts, amstext, amsthm}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage[colorlinks=true, allcolors=black]{hyperref}
+
+\title{\textbf{Abstract}}
+\author{\textbf{Timur Dzhesur} \\ Album no. 162441}
+\date{Lublin 2026}
+
+\begin{document}
+\maketitle
+
+\thispagestyle{empty}
+
+\vspace{1cm}
+
+\begin{center}
+    \textbf{Module-LWE Fast Implementation for Post-Quantum Cryptography}
+\end{center}
+
+\vspace{0.5cm}
+
+\begin{abstract}
+This thesis presents the design, optimization, and microarchitectural evaluation of the \texttt{MLWE-Fast} library, a high-performance C11 software implementation of the CRYSTALS-Kyber key encapsulation mechanism (KEM) targeting the post-quantum Kyber-512 parameter profile. Driven by the impending threat of quantum computing to classical public-key cryptography (e.g., RSA and ECC), standardizing bodies have focused on lattice-based cryptography, which relies on the hardness of the Module Learning With Errors (M-LWE) problem.
+
+The primary contribution of this work is the development of a portable, dependency-free implementation that achieves significant execution speedups over the standard reference implementation through pure software design. By replacing latency-heavy division instructions in the critical path with division-free Montgomery and Barrett modular reductions, the Base C variant achieves a $1.60\times$ speedup for key pair generation, a $2.01\times$ speedup for encapsulation, and a $2.07\times$ speedup for decapsulation when compiled under GCC and executed on an AMD Zen 4 architecture. Furthermore, the memory layout was optimized with strict 32-byte alignment to prevent split-cache-line penalties and maximize cache-friendliness.
+
+To address real-world deployment requirements, the library implements native, cross-platform cryptographically secure pseudorandom number generators (CSPRNGs), utilizing the Cryptography Next Generation (CNG) API via \texttt{BCryptGenRandom} on Windows systems and caching file descriptors for \texttt{/dev/urandom} on Unix-like environments. Additionally, to facilitate the construction of custom hybrid cryptographic protocols, the underlying passively secure IND-CPA public-key encryption (PKE) scheme wrappers are exposed in the shared API. The correctness of the implementation is verified through an extensive differential testing harness running against reference test vectors.
+\end{abstract}
+
+\end{document}

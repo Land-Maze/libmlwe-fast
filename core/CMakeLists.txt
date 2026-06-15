@@ -11,3 +11,7 @@ target_include_directories(core PUBLIC
 set_target_properties(core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
+
+if(WIN32)
+  target_link_libraries(core PUBLIC bcrypt)
+endif()

@@ -35,11 +35,16 @@
 
 #define MLWE_FAST_PUBLICKEYBYTES  800
 #define MLWE_FAST_SECRETKEYBYTES  1632
+#define MLWE_FAST_INDCPA_SECRETKEYBYTES 768
 #define MLWE_FAST_CIPHERTEXTBYTES 768
 #define MLWE_FAST_SSBYTES         32
 
 #if defined(_WIN32)
+#ifdef MLWE_FAST_BUILD_DLL
 #define MLWE_EXPORT __declspec(dllexport)
+#else
+#define MLWE_EXPORT __declspec(dllimport)
+#endif
 #elif defined(__GNUC__) && __GNUC__ >= 4
 #define MLWE_EXPORT __attribute__((visibility("default")))
 #else
@@ -81,6 +86,37 @@ int mlwe_fast_kem_encaps(uint8_t* ct, uint8_t* ss, const uint8_t* pk);
  */
 MLWE_EXPORT
 int mlwe_fast_kem_decaps(uint8_t* ss, const uint8_t* ct, const uint8_t* sk);
+
+/**
+ * @brief Returns the runtime version string of the library.
+ * @return Const pointer to the version string ("0.1.0").
+ */
+MLWE_EXPORT
+const char* mlwe_fast_version(void);
+
+/**
+ * @brief Generates a key pair for the underlying IND-CPA PKE scheme.
+ */
+MLWE_EXPORT
+void mlwe_fast_kem_indcpa_keypair(uint8_t pk[MLWE_FAST_PUBLICKEYBYTES],
+                                  uint8_t sk[MLWE_FAST_INDCPA_SECRETKEYBYTES]);
+
+/**
+ * @brief Encrypts a message using the IND-CPA PKE scheme.
+ */
+MLWE_EXPORT
+void mlwe_fast_kem_indcpa_enc(uint8_t c[MLWE_FAST_CIPHERTEXTBYTES],
+                              const uint8_t m[32],
+                              const uint8_t pk[MLWE_FAST_PUBLICKEYBYTES],
+                              const uint8_t coins[32]);
+
+/**
+ * @brief Decrypts a ciphertext using the IND-CPA PKE scheme.
+ */
+MLWE_EXPORT
+void mlwe_fast_kem_indcpa_dec(uint8_t m[32],
+                              const uint8_t c[MLWE_FAST_CIPHERTEXTBYTES],
+                              const uint8_t sk[MLWE_FAST_INDCPA_SECRETKEYBYTES]);
 
 #ifdef __cplusplus
 }

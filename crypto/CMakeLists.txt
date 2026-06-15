@@ -11,6 +11,7 @@ target_include_directories(mlwe-fast
 )
 
 target_link_libraries(mlwe-fast PUBLIC core)
+target_compile_definitions(mlwe-fast PRIVATE MLWE_FAST_BUILD_DLL)
 
 set_target_properties(mlwe-fast PROPERTIES
   POSITION_INDEPENDENT_CODE ON

@@ -1,0 +1,103 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[english]{babel}
+\usepackage[a4paper,top=2cm,bottom=2cm,left=3cm,right=3cm]{geometry}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[colorlinks=true, allcolors=black]{hyperref}
+
+\lstset{
+    language=bash,
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    showstringspaces=false,
+    backgroundcolor=\color[gray]{0.95}
+}
+
+\title{\textbf{MLWE-Fast Library}\\ \large Compilation and Execution Guide}
+\author{\textbf{Timur Dzhesur} \\ Faculty of Social and Technical Sciences \\ Institute of Informatics}
+\date{Lublin 2026}
+
+\begin{document}
+\maketitle
+
+\section{System Prerequisites}
+To build and execute the library, ensure your system has the following dependencies installed:
+\begin{itemize}
+    \item \textbf{C/C++ Compiler:} GCC (version 9.0+), Clang (version 10.0+), or MSVC (Visual Studio 2019+) supporting C11 and C++17.
+    \item \textbf{Build System:} CMake (version 4.0 or newer).
+    \item \textbf{Python:} Python 3.6 or newer (needed only to run the Python ctypes demonstration).
+    \item \textbf{System Libraries:}
+    \begin{itemize}
+        \item \textit{Windows:} The library dynamically links against \texttt{bcrypt.lib} for entropy via the Cryptography Next Generation (CNG) API.
+        \item \textit{Linux:} Access to \texttt{/dev/urandom} is required for system-level entropy.
+    \end{itemize}
+\end{itemize}
+
+\section{Compilation and Building}
+The build system of \texttt{MLWE-Fast} is managed entirely by CMake, allowing native compilation on both Linux/Unix and Windows environments.
+
+\subsection{Building on Linux / Unix}
+To compile the shared library, test targets, and benchmarking executables, run the following commands in the project root directory:
+
+\begin{lstlisting}
+cmake -B build -DBUILD_TESTS=ON -DBUILD_BENCHMARK=ON .
+
+cmake --build build --config Release
+\end{lstlisting}
+
+This compiles the static core library, the shared public API wrapper library (\texttt{libmlwe-fast.so}), the test suite, and the benchmarking target.
+
+\subsection{Building on Windows (MSVC)}
+Using the \textit{Developer Command Prompt for Visual Studio}, navigate to the project root and run:
+
+\begin{lstlisting}
+cmake -B build -DBUILD_TESTS=ON -DBUILD_BENCHMARK=ON .
+
+cmake --build build --config Release
+\end{lstlisting}
+
+This produces the shared library file \texttt{mlwe-fast.dll} inside the \texttt{build/crypto/Release/} directory.
+
+\section{Verifying the Installation}
+Once compilation is successful, you can verify the correctness of the implementation using the automated testing and benchmarking targets.
+
+\subsection{Running the Unit Tests}
+The unit tests are built using the Catch2 testing framework and compare the implementation's outputs against the official reference CRYSTALS-Kyber test vectors. Run the following command from the project root:
+
+\begin{lstlisting}
+./build/tests/mlwe-tests
+\end{lstlisting}
+
+\subsection{Running the Benchmarks}
+To evaluate the execution speed of the polynomial arithmetic, hashing routines, and KEM/PKE operations:
+
+\begin{lstlisting}
+./build/bench/kem-bench
+\end{lstlisting}
+
+\section{Executing the Python Demonstration Script}
+To showcase how the shared library can be utilized by external consumers, a Python demonstration script is located in the \texttt{examples/} directory. The script uses Python's native \texttt{ctypes} module to load the compiled library directly.
+
+\subsection{Running the Demo}
+From the project root directory, run the script:
+
+\begin{lstlisting}
+python3 examples/demo.py
+\end{lstlisting}
+
+\subsection{Demonstrated Features}
+The Python demo performs the following sequence of operations:
+\begin{enumerate}
+    \item \textbf{Library Loading:} Automatically locates and loads the compiled shared library (\texttt{libmlwe-fast.so} or \texttt{mlwe-fast.dll}) from the build folder.
+    \item \textbf{Version Verification:} Queries and prints the dynamic runtime version of the library using the exported \texttt{mlwe\_fast\_version} function.
+    \item \textbf{Post-Quantum Key Encapsulation:} Runs a full CRYSTALS-Kyber-512 KEM exchange, generating a public/secret keypair, encapsulating a shared secret to the public key, and decapsulating the ciphertext to verify that both shared secrets match.
+    \item \textbf{Hybrid Symmetric Encryption:} Reads a sample input text file (\texttt{sample\_input.txt}), derives a symmetric key from the post-quantum KEM shared secret, encrypts the file contents using a custom SHA-256 CTR-mode stream cipher, and decrypts it to verify bit-perfect roundtrip data integrity.
+    \item \textbf{IND-CPA Public-Key Encryption:} Demonstrates the exposed passively secure PKE wrappers (\texttt{mlwe\_fast\_kem\_indcpa\_keypair}, \texttt{mlwe\_fast\_kem\_indcpa\_enc}, and \texttt{mlwe\_fast\_kem\_indcpa\_dec}) by generating key material, encrypting a 32-byte plaintext block with random coins, and decrypting it.
+\end{enumerate}
+
+\end{document}

@@ -44,3 +44,22 @@ TEST_CASE("Key Generation Consistency", "[kem]") {
         REQUIRE_FALSE(sk_all_zero);
     }
 }
+
+TEST_CASE("Custom IND-CPA PKE", "[kem]") {
+    SECTION("IND-CPA wrapper roundtrip correctness") {
+        uint8_t pk[MLWE_FAST_PUBLICKEYBYTES];
+        uint8_t sk[MLWE_FAST_INDCPA_SECRETKEYBYTES];
+        uint8_t ct[MLWE_FAST_CIPHERTEXTBYTES];
+        uint8_t coins[32] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                             17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
+        uint8_t m[32] = {42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                         42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42};
+        uint8_t m_dec[32];
+
+        mlwe_fast_kem_indcpa_keypair(pk, sk);
+        mlwe_fast_kem_indcpa_enc(ct, m, pk, coins);
+        mlwe_fast_kem_indcpa_dec(m_dec, ct, sk);
+
+        REQUIRE(std::memcmp(m, m_dec, 32) == 0);
+    }
+}

@@ -8,7 +8,6 @@ bench/*
 !bench/kem_bench.cpp
 !bench/*_benchmarks.py
 
-# LaTeX build artifacts
 docs/*.aux
 docs/*.log
 docs/*.out
@@ -28,3 +27,6 @@ docs/*.idx
 docs/*.ind
 docs/*.ilg
 docs/chapters/*.aux
+
+abstract/*
+!abstract/abstract.tex
