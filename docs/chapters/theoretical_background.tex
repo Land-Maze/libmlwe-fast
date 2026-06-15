@@ -1,7 +1,7 @@
-\chapter{Theoretical Background}
+\chapter{Theoretical Background of Module-LWE and Number Theoretic Transform}
 \label{ch:theoretical_background}
 
-This chapter establishes the mathematical and computational foundations necessary for this thesis. It begins by defining the complexity classes that underpin modern cryptography, analyzes the specific threats posed by quantum computing, and finally details the lattice-based structures and algorithms, specifically Module-LWE and the Number Theoretic Transform, that enable secure and efficient post-quantum communication.
+This chapter establishes the mathematical and computational foundations necessary for this thesis. It begins by defining the complexity classes that underpin modern cryptography, analyzes the specific threats posed by quantum computing, and finally details the lattice-based structures and algorithms, specifically M-LWE and the NTT, that enable secure and efficient post-quantum communication.
 
 \section{Cryptography and Computational Hardness: P vs NP Problem}
 \label{sec:cryptography_fundamentals}
@@ -33,7 +33,9 @@ Quantum computing introduces a new paradigm of computation utilizing the princip
 Unlike classical computers that operate on bits (0 or 1), quantum computers operate on qubits.
 A qubit is a unit of quantum information that exists as a probabilistic combination of basis states, denoted as $|0\rangle$ and $|1\rangle$.
 
-\[ |\psi\rangle = \alpha|0\rangle + \beta|1\rangle \]
+\begin{equation}
+    |\psi\rangle = \alpha|0\rangle + \beta|1\rangle
+\end{equation}
 where $\alpha$ and $\beta$ are complex numbers satisfying the normalization condition $|\alpha|^2 + |\beta|^2 = 1$.
 
 \subsubsection{Interference and Computation}
@@ -49,24 +51,26 @@ On the Bloch sphere (Figure~\ref{fig:bloch_sphere_visualisation}), any qubit sta
 The North and South poles represent the basis states $|0\rangle$ and $|1\rangle$, respectively, while any other point corresponds to a superposition of these states.
 The state vector's position is defined by the polar angle $\theta$ and the azimuthal angle $\varphi$, resulting in the following representation:
 
-\[ |\psi\rangle = \cos\left(\frac{\theta}{2}\right)|0\rangle + e^{i\varphi}\sin\left(\frac{\theta}{2}\right)|1\rangle \]
+\begin{equation}
+    |\psi\rangle = \cos\left(\frac{\theta}{2}\right)|0\rangle + e^{i\varphi}\sin\left(\frac{\theta}{2}\right)|1\rangle
+\end{equation}
 
 \begin{figure}[htbp]
     \centering
     \includesvg[width=0.3\textwidth]{bloch_sphere.svg}
-    \caption{Bloch Sphere Visualisation. \newline\centering[Source: Nielsen \& Chuang~\cite{nielsen2010quantum}]}
+    \caption{Bloch Sphere Visualisation. \newline [Source: Nielsen \& Chuang~\cite{nielsen2010quantum}]}
     \label{fig:bloch_sphere_visualisation}
 \end{figure}
 
 \subsection{Algorithmic Vulnerabilities}
 \label{subsec:shor_and_grover}
 
-Two primary quantum algorithms necessitate the transition to Post-Quantum Cryptography (PQC):
+Two primary quantum algorithms necessitate the transition to post-quantum cryptography:
 
 \subsubsection{Shor's Algorithm}
 Peter Shor introduced an algorithm~\cite{shor1994algorithms} that solves Integer Factorization and Discrete Logarithm problems in polynomial time.
 For an RSA key of length $n$, classical sieving requires sub-exponential time, whereas Shor's algorithm requires only $O(n^2 (\log n) (\log \log n))$ gates.
-This effectively breaks RSA and Elliptic Curve Cryptography (ECC).
+This effectively breaks RSA and ECC.
 
 \subsubsection{Grover's Algorithm}
 Grover's algorithm provides a quadratic speedup for searching unsorted databases.
@@ -84,14 +88,16 @@ This highlights the vast disparity between current experimental capabilities and
 \section{Lattice-Based Cryptography}
 \label{sec:lattice_based_cryptography}
 
-In response to the quantum threat, the National Institute of Standards and Technology (NIST) has standardized Lattice-based cryptography.
+In response to the quantum threat, NIST has standardized Lattice-based cryptography.
 Lattices are resistant to both Shor's and Grover's algorithms because their underlying mathematical problems are believed to be hard even for quantum computers.
 
 \subsection{Lattice Definition}
 \label{subsec:lattice-definition}
 A lattice $\mathcal{L}$ is a discrete subgroup of $\mathbb{R}^n$.
 It is defined as the set of all integer linear combinations of linearly independent basis vectors $\mathbf{b}_1, \dots, \mathbf{b}_k \in \mathbb{R}^n$:
-\[ \mathcal{L}(\mathbf{B}) = \left\{ \sum_{i=1}^k z_i \mathbf{b}_i : z_i \in \mathbb{Z} \right\} \]
+\begin{equation}
+    \mathcal{L}(\mathbf{B}) = \left\{ \sum_{i=1}^k z_i \mathbf{b}_i : z_i \in \mathbb{Z} \right\}
+\end{equation}
 The security of lattice schemes stems from geometric problems such as the \textbf{Shortest Vector Problem (SVP)} and the \textbf{Closest Vector Problem (CVP)}.
 In their exact forms, these problems are proven to be NP-hard.
 
@@ -101,31 +107,37 @@ Vector $\mathbf{s}$ represents a solution to the SVP, while finding the lattice 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.7\textwidth]{lattice}
-    \caption{Visualisation of a 2D Lattice. \newline\centering[Source: "What is Lattice-based Cryptography?". Utimaco. https://utimaco.com/service/knowledge-base/post-quantum-cryptography/what-lattice-based-cryptography]}
+    \caption{Visualisation of a 2D Lattice. \newline [Source: "What is Lattice-based Cryptography?". Utimaco. https://utimaco.com/service/knowledge-base/post-quantum-cryptography/what-lattice-based-cryptography]}
     \label{fig:lattice_visualisation}
 \end{figure}
 
-\subsubsection{Shortest Vector Problem (SVP)}
+\subsubsection{Shortest Vector Problem}
 The SVP asks to find the shortest non-zero vector in a lattice.
 Given a basis $\mathbf{B}$, the goal is to find a vector $\mathbf{v} \in \mathcal{L}(\mathbf{B})$ such that:
-\[\|\mathbf{v}\| = \lambda_1(\mathcal{L}) = \min_{\mathbf{u} \in \mathcal{L}(\mathbf{B}) \setminus \{\mathbf{0}\}} \|\mathbf{u}\| \]
+\begin{equation}
+    \|\mathbf{v}\| = \lambda_1(\mathcal{L}) = \min_{\mathbf{u} \in \mathcal{L}(\mathbf{B}) \setminus \{\mathbf{0}\}} \|\mathbf{u}\|
+\end{equation}
 
 In Figure~\ref{fig:lattice_visualisation}, vector $\mathbf{s}$ (green) illustrates this concept.
 In basic terms, this means finding the smallest "step" possible that lands exactly on a non-zero lattice point.
 
-\subsubsection{Closest Vector Problem (CVP)}
+\subsubsection{Closest Vector Problem}
 The CVP asks to find the lattice vector closest to an arbitrary target vector $\mathbf{t} \in \mathbb{R}^n$.
 Formally, given a basis $\mathbf{B}$ and a target $\mathbf{t}$, the goal is to find $\mathbf{v} \in \mathcal{L}(\mathbf{B})$ such that:
-\[\|\mathbf{t} - \mathbf{v}\| = \min_{\mathbf{u} \in \mathcal{L}(\mathbf{B})} \|\mathbf{t} - \mathbf{u}\| \]
+\begin{equation}
+    \|\mathbf{t} - \mathbf{v}\| = \min_{\mathbf{u} \in \mathcal{L}(\mathbf{B})} \|\mathbf{t} - \mathbf{u}\|
+\end{equation}
 
 As shown in Figure~\ref{fig:lattice_visualisation}, this involves identifying the point $\mathbf{z}$ (green dot) that is nearest to the target point $\mathbf{t}$ (pink dot).
 
 \subsection{Learning With Errors}
 \label{subsec:lwe}
 
-The Learning With Errors (LWE) problem, introduced by Regev~\cite{regev2005lattices}, is essentially the cryptographic realization of the Closest Vector Problem (CVP).
+The LWE problem, introduced by Regev~\cite{regev2005lattices}, is essentially the cryptographic realization of the CVP.
 It requires recovering a secret vector $\mathbf{s} \in \mathbb{Z}_q^n$ from a system of noisy linear equations:
-\[ A\mathbf{s} + \mathbf{e} = \mathbf{b} \pmod q \]
+\begin{equation}
+    A\mathbf{s} + \mathbf{e} = \mathbf{b} \pmod q
+\end{equation}
 where $A$ is a uniform matrix and $\mathbf{e}$ is a small error vector drawn from an error distribution $\chi$.
 
 \begin{figure}[htbp]
@@ -147,7 +159,7 @@ where $A$ is a uniform matrix and $\mathbf{e}$ is a small error vector drawn fro
         \end{array} \right]$ \\
         $m \times n$ & & $n \times 1$ & & $m \times 1$
     \end{tabular}
-    \caption{Structural definition of the LWE problem. The public matrix $A$ has dimensions $m \times n$, the secret vector $\mathbf{s}$ has dimension $n$, and the noise $\mathbf{e}$ is a vector of dimension $m$. \newline\centering[Source: Own work].}
+    \caption{Structural definition of the LWE problem. The public matrix $A$ has dimensions $m \times n$, the secret vector $\mathbf{s}$ has dimension $n$, and the noise $\mathbf{e}$ is a vector of dimension $m$. \newline [Source: Own Work]}
     \label{fig:lwe_definition_matrix}
 \end{figure}
 
@@ -155,7 +167,7 @@ Standard LWE is secure but inefficient because the public matrix $A$ requires $O
 
 \begin{figure}[htbp]
     \centering
-    \[
+    \begin{equation}
         \begin{bmatrix}
             4 & 1 & 11 & 10 \\
             5 & 5 & 9 & 5 \\
@@ -177,8 +189,8 @@ Standard LWE is secure but inefficient because the public matrix $A$ requires $O
         \begin{bmatrix}
             4 \\ 7 \\ 2 \\ 11 \\ 5 \\ 12 \\ 8
         \end{bmatrix}
-    \]
-    \caption{Numerical example of LWE operations with $n=4, m=7, q=13$. The matrix $A \in \mathbb{Z}_{13}^{7 \times 4}$ is multiplied by secret $\mathbf{s} \in \mathbb{Z}_{13}^{4 \times 1}$, and noise $\mathbf{e} \in \mathbb{Z}_{13}^{7 \times 1}$ is added to produce $\mathbf{b} \in \mathbb{Z}_{13}^{7 \times 1}$. All operations are performed modulo 13. \newline\centering[Source: Own work].}
+    \end{equation}
+    \caption{Numerical example of LWE operations with $n=4, m=7, q=13$. The matrix $A \in \mathbb{Z}_{13}^{7 \times 4}$ is multiplied by secret $\mathbf{s} \in \mathbb{Z}_{13}^{4 \times 1}$, and noise $\mathbf{e} \in \mathbb{Z}_{13}^{7 \times 1}$ is added to produce $\mathbf{b} \in \mathbb{Z}_{13}^{7 \times 1}$. All operations are performed modulo 13. \newline [Source: Own Work]}
     \label{fig:lwe_operations_matrix}
 \end{figure}
 
@@ -190,7 +202,7 @@ This noise prevents an adversary from using Gaussian elimination to recover the 
 \section{Module-LWE and Algebraic Structures}
 \label{sec:m_lwe_structures}
 
-To achieve the "Fast Implementation" goal of this thesis, we utilize Module-LWE (M-LWE)~\cite{langlois2015worst}. M-LWE balances the high security of standard LWE with the efficiency of structured variants like Ring-LWE~\cite{LyubashevskyPR13}.
+To achieve the "Fast Implementation" goal of this thesis, we utilize M-LWE~\cite{langlois2015worst}. M-LWE balances the high security of standard LWE with the efficiency of structured variants like Ring-LWE~\cite{LyubashevskyPR13}.
 
 The key innovation in M-LWE is the use of polynomial rings instead of integers.
 Specifically, we work over the ring $R_q = \mathbb{Z}_q[X] / \langle X^d + 1 \rangle$, where $d$ is typically 256 (same as in CRYSTALS-Kyber~\cite[page 4]{kyber_spec_2021}).
@@ -208,7 +220,9 @@ This structure allows the public matrix $A$ to be represented in a compressed fo
 
 \subsubsection{Polynomial Representation}
 Each element in $R_q$ is represented as a polynomial:
-\[ f(X) = a_0 + a_1 X + a_2 X^2 + \dots + a_{d-1} X^{d-1} \]
+\begin{equation}
+    f(X) = a_0 + a_1 X + a_2 X^2 + \dots + a_{d-1} X^{d-1}
+\end{equation}
 where $a_i \in \mathbb{Z}_q$.
 Polynomial addition and multiplication are performed modulo $X^d + 1$ and $q$.
 
@@ -218,7 +232,9 @@ Additionally, the matrix-vector multiplication in M-LWE involves polynomial mult
 \label{subsec:module-lwe-definition}
 In M-LWE, the secret $\mathbf{s}$ is a vector (module) of rank $k$ over the ring $R_q$.
 The defining equation becomes:
-\[ \mathbf{b} = A\mathbf{s} + \mathbf{e} \in R_q^k \]
+\begin{equation}
+    \mathbf{b} = A\mathbf{s} + \mathbf{e} \in R_q^k
+\end{equation}
 where matrix multiplication involves polynomial multiplication.
 The parameter $k$ allows security to be tuned: Kyber-512 uses $k=2$, while Kyber-768 uses $k=3$.
 With increased $k$, the security level rises, but so does computational complexity.
@@ -226,7 +242,7 @@ With increased $k$, the security level rises, but so does computational complexi
 \section{The Number Theoretic Transform (NTT)}
 \label{sec:ntt}
 
-The Number Theoretic Transform (NTT) is the critical algorithmic driver for high-performance M-LWE implementations.
+The NTT is the critical algorithmic driver for high-performance M-LWE implementations.
 It is a generalization of the Fast Fourier Transform (FFT) adapted for finite fields.
 
 \subsection{The Multiplication Bottleneck}
@@ -262,7 +278,7 @@ This is achieved by using a primitive $2d$-th root of unity $\zeta$ to evaluate 
 
 \begin{figure}[htbp]
     \centering
-    \[
+    \begin{equation}
         \hat{\mathbf{f}} =
         \begin{bmatrix}
             1 & \zeta^1 & \zeta^2 & \dots & \zeta^{d-1} \\
@@ -273,8 +289,8 @@ This is achieved by using a primitive $2d$-th root of unity $\zeta$ to evaluate 
         \begin{bmatrix}
             f_0 \\ f_1 \\ f_2 \\ \vdots \\ f_{d-1}
         \end{bmatrix} \pmod q
-    \]
-    \caption{Matrix-vector representation of the Negacyclic NTT evaluation. The coefficient vector $\mathbf{f}$ is transformed into the NTT domain $\hat{\mathbf{f}}$ by evaluation at odd powers of the $2d$-th primitive root of unity $\zeta$.}
+    \end{equation}
+    \caption{Matrix-vector representation of the Negacyclic NTT evaluation. The coefficient vector $\mathbf{f}$ is transformed into the NTT domain $\hat{\mathbf{f}}$ by evaluation at odd powers of the $2d$-th primitive root of unity $\zeta$. \newline [Source: Own Work]}
     \label{fig:negacyclic_ntt_matrix}
 \end{figure}
 
@@ -290,4 +306,4 @@ Once transformed, the multiplication of two polynomials $f$ and $g$ is simplifie
 \section{Summary for Chapter 1}
 \label{sec:summary_chapter_1}
 
-In summary, this chapter established the theoretical framework for the thesis. The discussion reviewed the computational hardness assumptions that underpin modern cryptography and analyzed the centrality of the P vs NP problem to security. The existential threat posed by quantum algorithms, specifically those of Shor and Grover, was identified, presenting lattice-based cryptography as a robust solution. The transition from standard LWE to Module-LWE was detailed, highlighting how the algebraic structure of polynomial rings offers superior computational efficiency. Finally, the Number Theoretic Transform (NTT) was introduced as the essential mathematical tool for optimizing these schemes. The subsequent chapters build upon these foundations to design, implement, and evaluate the high-performance Module-LWE library.
+In summary, this chapter established the theoretical framework for the thesis. The discussion reviewed the computational hardness assumptions that underpin modern cryptography and analyzed the centrality of the P vs NP problem to security. The existential threat posed by quantum algorithms, specifically those of Shor and Grover, was identified, presenting lattice-based cryptography as a robust solution. The transition from standard LWE to Module-LWE was detailed, highlighting how the algebraic structure of polynomial rings offers superior computational efficiency. Finally, the NTT was introduced as the essential mathematical tool for optimizing these schemes. The subsequent chapters build upon these foundations to design, implement, and evaluate the high-performance Module-LWE library.

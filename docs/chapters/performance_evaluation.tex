@@ -1,4 +1,4 @@
-\chapter{Performance Evaluation}
+\chapter{Performance Evaluation and Benchmark Analysis}
 \label{ch:performance_evaluation}
 
 This chapter evaluates the performance of the developed \texttt{MLWE-}\allowbreak\texttt{Fast} library. The results of high-resolution micro-benchmarks comparing the library variants (Base C, AVX2, and AVX-512) against the official CRYSTALS-Kyber reference implementation are presented. A detailed description of the benchmarking methodology and environment is provided, followed by statistical analysis of the gathered execution times, and an architectural analysis of the performance improvements and limitations.
@@ -15,6 +15,8 @@ The benchmarks were conducted on a modern consumer desktop platform running Cach
 
 \begin{table}[htbp]
     \centering
+    \caption{Benchmarking hardware and software environment details. \newline [Source: Own Work]}
+    \label{tab:bench_env}
     \begin{tabular}{ll}
         \toprule
         Component & Specification \\
@@ -28,17 +30,15 @@ The benchmarks were conducted on a modern consumer desktop platform running Cach
         Optimization Flags & \texttt{-O3 -march=native -mtune=native -DNDEBUG} \\
         \bottomrule
     \end{tabular}
-    \caption{Benchmarking hardware and software environment details. [Source: Own Work]}
-    \label{tab:bench_env}
 \end{table}
 
 \subsection{Evaluated Cryptographic Operations}
 \label{sub:cryptographic_ops}
 
-The benchmarking suite evaluates the three primary operations of the Key Encapsulation Mechanism (KEM) to understand how low-level modifications propagate to the system level.
+The benchmarking suite evaluates the three primary operations of the KEM to understand how low-level modifications propagate to the system level.
 
 \subsubsection{Keypair Generation}
-Keypair generation establishes the public key and secret key from random seeds. The routine generates a random 32-byte seed, expands it using SHA3-512, and derives the public seed and noise seed. The public seed is expanded via SHAKE128 block generation and rejection sampling to construct the public matrix $\mathbf{A}$. The noise seed is used to sample secret and error vectors $\mathbf{s}, \mathbf{e}$ under the Centered Binomial Distribution (CBD) with $\eta_1 = 3$. These vectors are transformed into the NTT domain using the Cooley-Tukey butterfly, and the public key vector is computed as $\mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e}$. The final public key is packed from the vector $\mathbf{t}$ and the public seed.
+Keypair generation establishes the public key and secret key from random seeds. The routine generates a random 32-byte seed, expands it using SHA3-512, and derives the public seed and noise seed. The public seed is expanded via SHAKE128 block generation and rejection sampling to construct the public matrix $\mathbf{A}$. The noise seed is used to sample secret and error vectors $\mathbf{s}, \mathbf{e}$ under the CBD with $\eta_1 = 3$. These vectors are transformed into the NTT domain using the Cooley-Tukey butterfly, and the public key vector is computed as $\mathbf{t} = \mathbf{A}\mathbf{s} + \mathbf{e}$. The final public key is packed from the vector $\mathbf{t}$ and the public seed.
 
 \subsubsection{Encapsulation}
 Encapsulation takes the recipient's public key and generates a random shared secret along with a corresponding ciphertext. The routine samples a 32-byte message, hashes it with the public key hash using SHA3-512 to generate encryption coins and the shared secret. The matrix $\mathbf{A}$ is reconstructed from the public seed, and the ephemeral vector $\mathbf{r}$ is sampled using the coins and $\eta_1 = 3$. Noise vectors $\mathbf{e}_1$ and $e_2$ are sampled using $\eta_2 = 2$. The ephemeral vector is transformed to the NTT domain and multiplied with the matrix transpose to compute $\mathbf{u} = \mathbf{A}^T\mathbf{r} + \mathbf{e}_1$. The second component is computed as $v = \mathbf{t}^T\mathbf{r} + e_2 + \text{message}$ in the coefficient domain, involving inverse NTT transforms. The ciphertext components are compressed (10-bit and 4-bit lossy compression) and packed into a 768-byte buffer.
@@ -70,6 +70,8 @@ The results of the 5000-sample benchmark runs for all configurations are summari
 
 \begin{table}[htbp]
     \centering
+    \caption{Benchmarking results for CRYSTALS-Kyber operations ($N = 5000$ samples, times in nanoseconds). \newline [Source: Own Work]}
+    \label{tab:bench_results}
     \begin{tabular}{lcccc}
         \toprule
         Variant & \shortstack{Mean\\(ns)} & \shortstack{Std. Dev.\\(ns)} & \shortstack{Speedup\\vs. Reference} & \shortstack{Speedup\\vs. Base} \\
@@ -93,8 +95,6 @@ The results of the 5000-sample benchmark runs for all configurations are summari
         AVX-512 & 15326.8 & 664.4 & $2.10\times$ & $1.02\times$ \\
         \bottomrule
     \end{tabular}
-    \caption{Benchmarking results for CRYSTALS-Kyber operations ($N = 5000$ samples, times in nanoseconds). [Source: Own Work]}
-    \label{tab:bench_results}
 \end{table}
 
 To visualize the performance differences and distributions, the split plots for each operation are illustrated below. Figures~\ref{fig:plots_keypair}, \ref{fig:plots_encaps}, and \ref{fig:plots_decaps} present the bar plots (showing average execution times compared to the Reference baseline) alongside the box plots (depicting the full execution time distributions).
@@ -104,7 +104,7 @@ To visualize the performance differences and distributions, the split plots for 
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Keypair_bar.png}
     \hfill
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Keypair_box.png}
-    \caption{Keypair generation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \caption{Keypair generation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). \newline [Source: Own Work]}
     \label{fig:plots_keypair}
 \end{figure}
 
@@ -113,7 +113,7 @@ To visualize the performance differences and distributions, the split plots for 
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Encapsulation_bar.png}
     \hfill
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Encapsulation_box.png}
-    \caption{Encapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \caption{Encapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). \newline [Source: Own Work]}
     \label{fig:plots_encaps}
 \end{figure}
 
@@ -122,7 +122,7 @@ To visualize the performance differences and distributions, the split plots for 
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Decapsulation_bar.png}
     \hfill
     \includegraphics[width=0.48\textwidth]{../bench/plots/Release_Decapsulation_box.png}
-    \caption{Decapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). [Source: Own Work]}
+    \caption{Decapsulation performance comparison: Average execution times with standard deviation (left) and full statistical distribution box plot (right). \newline [Source: Own Work]}
     \label{fig:plots_decaps}
 \end{figure}
 
@@ -168,10 +168,10 @@ This indicates that a $5\%$ speedup is the hard physical limit of optimizing add
 The core bottlenecks of the algorithm lie in other components, which are detailed below.
 
 \subsubsection{Symmetric Cryptography Bottleneck}
-Symmetric hash operations, specifically SHA-3, SHAKE-128, and SHAKE-256, absorb over $50\%$ of the total execution cycles. These operations are heavily used during the matrix generation phase (where columns of the public matrix $\mathbf{A}$ are generated via rejection sampling from a seed) and the noise polynomial generation phase (where seeds are expanded to sample coefficients under the Centered Binomial Distribution). Because these symmetric hashing routines are executed serially in all variants of the \texttt{MLWE-Fast} library, they represent an absolute execution floor that arithmetic optimizations cannot lower.
+Symmetric hash operations, specifically SHA-3, SHAKE-128, and SHAKE-256, absorb over $50\%$ of the total execution cycles. These operations are heavily used during the matrix generation phase (where columns of the public matrix $\mathbf{A}$ are generated via rejection sampling from a seed) and the noise polynomial generation phase (where seeds are expanded to sample coefficients under the CBD). Because these symmetric hashing routines are executed serially in all variants of the \texttt{MLWE-Fast} library, they represent an absolute execution floor that arithmetic optimizations cannot lower.
 
 \subsubsection{Number Theoretic Transform Bottleneck}
-The forward and inverse Number Theoretic Transform (NTT) computations, along with pointwise polynomial multiplications in the NTT domain, constitute approximately $25\%\text{--}30\%$ of the total computational cost. The butterflies, modular reductions, and bit-reversal shuffles are executed using scalar C implementations in all configurations. Since NTT-related operations represent the second largest execution block, leaving them scalar prevents the SIMD variants from demonstrating meaningful speedups.
+The forward and inverse NTT computations, along with pointwise polynomial multiplications in the NTT domain, constitute approximately $25\%\text{--}30\%$ of the total computational cost. The butterflies, modular reductions, and bit-reversal shuffles are executed using scalar C implementations in all configurations. Since NTT-related operations represent the second largest execution block, leaving them scalar prevents the SIMD variants from demonstrating meaningful speedups.
 
 Because the Keccak functions, CBD sampling, and the NTT kernels remain scalar C code in all variants of \texttt{MLWE-Fast}, vectorizing addition and subtraction leaves the primary execution bottlenecks completely untouched.
 
@@ -206,7 +206,7 @@ The forward and inverse NTT transforms can be vectorized using double-butterfly 
 \label{sub:future_keccak}
 The Keccak-f[1600] permutation processes state arrays of 64-bit lanes. By utilizing 256-bit or 512-bit vector units, the library can execute multiple independent Keccak evaluations in parallel (e.g. 4-way or 8-way parallel SHAKE128). This parallel hashing is particularly useful during matrix generation, where columns of the matrix $\mathbf{A}$ are generated independently. Accelerating the hash bottleneck will directly resolve the primary performance limit of the library.
 
-\section{Summary}
+\section{Summary for Chapter 4}
 \label{sec:bench_summary}
 
 In this chapter, a high-resolution performance evaluation of the \texttt{MLWE-}\allowbreak\texttt{Fast} library was performed on an AMD Ryzen 9 7900 CPU. The portable Base C variant achieved a speedup of $1.60\times$ for Keypair, $2.01\times$ for Encapsulation, and $2.07\times$ for Decapsulation compared to the CRYSTALS-Kyber reference implementation. These gains are driven by division-free modular reduction, optimized memory layouts, and aggressive compiler optimizations under the GCC 16.1.1 \texttt{-O3} level.

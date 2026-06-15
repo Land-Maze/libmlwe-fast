@@ -1,4 +1,4 @@
-\chapter{Implementation}
+\chapter{Implementation Architecture of the MLWE-Fast Library}
 \label{ch:implementation}
 
 This chapter documents the software architecture and engineering decisions behind the MLWE-Fast library, a high-performance implementation of the CRYSTALS-Kyber key encapsulation mechanism written in ISO C11. The library is organized as a layered architecture that separates protocol coordination, IND-CPA encryption, and low-level polynomial arithmetic, enabling modular optimization while maintaining cryptographic correctness.
@@ -6,9 +6,35 @@ This chapter documents the software architecture and engineering decisions behin
 \section{Architectural Overview}
 \label{sec:arch_overview}
 
-The library follows a three-layer design that mirrors the mathematical structure of the Module-LWE problem. The KEM layer, residing in \texttt{crypto/}, exposes the public API through \texttt{crypto/\allowbreak include/\allowbreak lml/\allowbreak mlwe-fast.h} and implements the Fujisaki-Okamoto transform that converts the IND-CPA primitive into an IND-CCA2 secure key encapsulation mechanism. Beneath it, the IND-CPA layer in \texttt{core/\allowbreak src/\allowbreak kem.c} and \texttt{core/\allowbreak src/\allowbreak indcpa.c} implements the underlying Module-LWE encryption scheme, including key pair generation, encryption, and decryption with compression. The arithmetic layer, distributed across the remaining files in \texttt{core/\allowbreak src/}, provides polynomial arithmetic over the ring $R_q = \mathbb{Z}_q[X]/(X^n + 1)$, including NTT-based multiplication, centered binomial distribution sampling, matrix generation, and SHA3\allowbreak/SHAKE hash functions.
+The library follows a three-layer design that mirrors the mathematical structure of the Module-LWE problem. This architecture is illustrated in Figure~\ref{fig:architectural_overview}. The KEM layer, residing in \texttt{crypto/}, exposes the public API through \texttt{crypto/\allowbreak include/\allowbreak lml/\allowbreak mlwe-fast.h} and implements the Fujisaki-Okamoto transform that converts the IND-CPA primitive into an IND-CCA2 secure key encapsulation mechanism. Beneath it, the IND-CPA layer in \texttt{core/\allowbreak src/\allowbreak kem.c} and \texttt{core/\allowbreak src/\allowbreak indcpa.c} implements the underlying Module-LWE encryption scheme, including key pair generation, encryption, and decryption with compression. The arithmetic layer, distributed across the remaining files in \texttt{core/\allowbreak src/}, provides polynomial arithmetic over the ring $R_q = \mathbb{Z}_q[X]/(X^n + 1)$, including NTT-based multiplication, centered binomial distribution sampling, matrix generation, and SHA3\allowbreak/SHAKE hash functions.
 
 The codebase is split into two libraries. The \texttt{core/} directory builds a static library containing low-level primitives and the IND-CPA routines: NTT, polynomial arithmetic, CBD sampling, SHA3/SHAKE, matrix generation, and the CPA-secure encryption layer. The \texttt{crypto/} directory builds a shared library that provides the public API surface and links against \texttt{core}. Cryptographic state is passed through explicitly typed byte arrays and polynomial structures rather than hidden protocol state. The only persistent process-level state is the file descriptor cached by the operating-system randomness wrapper, which avoids reopening \texttt{/dev/urandom} for every seed request.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        layer/.style={rectangle, draw=black, thick, fill=gray!10, minimum width=8.5cm, minimum height=1.3cm, align=center, rounded corners=2pt},
+        arrow/.style={-stealth, thick, double, double distance=2pt}
+    ]
+        \node[layer, fill=blue!10] (kem) at (0, 4) {
+            \textbf{KEM Layer} (\texttt{crypto/}) \\
+            Fujisaki-Okamoto Transform (IND-CCA2)
+        };
+        \node[layer, fill=green!10] (cpa) at (0, 2) {
+            \textbf{IND-CPA Layer} (\texttt{core/src/kem.c}, \texttt{indcpa.c}) \\
+            Encryption, Decryption, Key Generation
+        };
+        \node[layer, fill=orange!10] (arith) at (0, 0) {
+            \textbf{Arithmetic \& Primitives Layer} (\texttt{core/src/}) \\
+            Polynomial Arithmetic, NTT, CBD, Modular Reduction, Keccak
+        };
+
+        \draw[arrow] (kem) -- (cpa);
+        \draw[arrow] (cpa) -- (arith);
+    \end{tikzpicture}
+    \caption{Layered software architecture of the \texttt{MLWE-Fast} library. \newline [Source: Own Work]}
+    \label{fig:architectural_overview}
+\end{figure}
 
 \section{Public API and Key Layout}
 \label{sec:public_api_key_layout}
@@ -45,6 +71,8 @@ The parameters are defined in \texttt{core/\allowbreak include/\allowbreak lml/\
 
 \begin{table}[htbp]
     \centering
+    \caption{Cryptographic parameters for the MLWE-Fast library, matching the Kyber-512 security level. \newline [Source: Own Work]}
+    \label{tab:crypto_params}
     \begin{tabular}{ll}
         \toprule
         Parameter & Value \\
@@ -60,8 +88,6 @@ The parameters are defined in \texttt{core/\allowbreak include/\allowbreak lml/\
         Shared secret size & 32 bytes \\
         \bottomrule
     \end{tabular}
-    \caption{Cryptographic parameters for the MLWE-Fast library, matching the Kyber-512 security level. [Source: Own Work]}
-    \label{tab:crypto_params}
 \end{table}
 
 \section{Core Algorithmic Implementations}
@@ -164,12 +190,101 @@ The CBD functions (\texttt{mlwe\_fast\_cbd2} and \texttt{mlwe\_fast\_cbd3} in \t
 
 The input buffer provides $\eta \cdot n / 4$ bytes, from which bit pairs (for $\eta=2$) or bit triplets (for $\eta=3$) are extracted via bitwise operations. The resulting coefficients fall in the range $[-\eta, \eta]$, providing the controlled noise distribution required for correct decryption.
 
+The C11 implementation of these CBD sampling routines is provided below:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_cbd2(mlwe_fast_poly *r, const uint8_t buf[2 * MLWE_FAST_N / 4]) {
+    uint32_t d, t, a, b;
+    int i, j;
+
+    for (i = 0; i < MLWE_FAST_N / 8; i++) {
+        t = load32_littleendian(buf + 4 * i);
+        d  = t & 0x55555555;
+        d += (t >> 1) & 0x55555555;
+
+        for (j = 0; j < 8; j++) {
+            a = (d >> (4 * j)) & 0x3;
+            b = (d >> (4 * j + 2)) & 0x3;
+            r->coeffs[8 * i + j] = (int16_t)a - (int16_t)b;
+        }
+    }
+}
+
+void mlwe_fast_cbd3(mlwe_fast_poly *r, const uint8_t buf[3 * MLWE_FAST_N / 4]) {
+    uint32_t d, t;
+    int16_t a, b;
+    int i, j;
+
+    for (i = 0; i < MLWE_FAST_N / 4; i++) {
+        t = load24_littleendian(buf + 3 * i);
+        d  = t & 0x00249249;
+        d += (t >> 1) & 0x00249249;
+        d += (t >> 2) & 0x00249249;
+
+        for (j = 0; j < 4; j++) {
+            a = (d >> (6 * j)) & 0x7;
+            b = (d >> (6 * j + 3)) & 0x7;
+            r->coeffs[4 * i + j] = a - b;
+        }
+    }
+}
+\end{lstlisting}
+
 \subsection{Deterministic Polynomial Generation}
 \label{sub:poly_gen}
 
 The public matrix $\mathbf{A}$ is generated deterministically from a seed using SHAKE128, implemented in \texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{poly\_gen.c}. The function \texttt{mlwe\_fast\_gen\_matrix\_poly} generates a single entry of $\mathbf{A}$ by absorbing a 32-byte seed together with column and row indices, then squeezing bytes and applying rejection sampling to produce uniform coefficients in $[0, q)$. Noise polynomials are generated using SHAKE256; the functions \texttt{mlwe\_}\allowbreak\texttt{fast\_}\allowbreak\texttt{polyvec\_}\allowbreak\texttt{get}\allowbreak\texttt{noise\_}\allowbreak\texttt{eta1} and \texttt{mlwe\_}\allowbreak\texttt{fast\_}\allowbreak\texttt{polyvec\_}\allowbreak\texttt{get}\allowbreak\texttt{noise\_}\allowbreak\texttt{eta2} append an 8-bit nonce to a 32-byte seed, expand the resulting string with SHAKE256, and pass the output to the CBD sampler. In vector noise generation routines, this nonce is incremented for each polynomial in the vector to ensure independent samples.
 
 This deterministic approach ensures that the same seed always produces the same polynomial, enabling the public matrix to be reconstructed from the public seed rather than transmitted explicitly.
+
+The deterministic matrix element generation and noise generation routines are implemented as follows:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_gen_matrix_poly(mlwe_fast_poly *a, const uint8_t seed[32], uint8_t i, uint8_t j) {
+    shake128ctx state;
+    uint8_t buf[REJECTION_SAMPLE_SQUEEZE_BLOCKS * SHAKE128_RATE];
+    uint8_t extseed[34];
+    unsigned int ctr;
+
+    for (int k = 0; k < 32; k++) extseed[k] = seed[k];
+    extseed[32] = i;
+    extseed[33] = j;
+
+    shake128_absorb(&state, extseed, 34);
+    shake128_squeezeblocks(buf, REJECTION_SAMPLE_SQUEEZE_BLOCKS, &state);
+
+    ctr = rejection_sample(a->coeffs, MLWE_FAST_N, buf, REJECTION_SAMPLE_SQUEEZE_BLOCKS * SHAKE128_RATE);
+
+    while (ctr < MLWE_FAST_N) {
+        shake128_squeezeblocks(buf, 1, &state);
+        ctr += rejection_sample(a->coeffs + ctr, MLWE_FAST_N - ctr, buf, SHAKE128_RATE);
+    }
+
+    shake128_ctx_release(&state);
+}
+
+void mlwe_fast_poly_getnoise_eta1(mlwe_fast_poly *r, const uint8_t seed[32], uint8_t nonce) {
+    uint8_t buf[3 * MLWE_FAST_N / 4];
+    uint8_t extseed[33];
+
+    for (int i = 0; i < 32; i++) extseed[i] = seed[i];
+    extseed[32] = nonce;
+
+    shake256(buf, sizeof(buf), extseed, 33);
+    mlwe_fast_cbd3(r, buf);
+}
+
+void mlwe_fast_poly_getnoise_eta2(mlwe_fast_poly *r, const uint8_t seed[32], uint8_t nonce) {
+    uint8_t buf[2 * MLWE_FAST_N / 4];
+    uint8_t extseed[33];
+
+    for (int i = 0; i < 32; i++) extseed[i] = seed[i];
+    extseed[32] = nonce;
+
+    shake256(buf, sizeof(buf), extseed, 33);
+    mlwe_fast_cbd2(r, buf);
+}
+\end{lstlisting}
 
 \subsection{Compression and Decompression}
 \label{sub:compression}
@@ -178,10 +293,108 @@ To reduce ciphertext size, the library applies lossy compression to polynomial c
 
 The compression introduces controlled error that remains within the decryption tolerance, while significantly reducing the serialized ciphertext size.
 
+The implementation of the compression and decompression routines is detailed below:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_poly_compress(uint8_t r[128], const mlwe_fast_poly *a) {
+    uint8_t t[8];
+    for (int i = 0; i < MLWE_FAST_N / 8; i++) {
+        for (int j = 0; j < 8; j++) {
+            uint32_t val = mlwe_fast_barrett_reduce(a->coeffs[8 * i + j]);
+            val += ((int16_t)val >> 15) & MLWE_FAST_Q;
+            t[j] = (uint8_t)((((val << 4) + (MLWE_FAST_Q / 2)) / MLWE_FAST_Q) & 15);
+        }
+        r[4 * i + 0] = t[0] | (t[1] << 4);
+        r[4 * i + 1] = t[2] | (t[3] << 4);
+        r[4 * i + 2] = t[4] | (t[5] << 4);
+        r[4 * i + 3] = t[6] | (t[7] << 4);
+    }
+}
+
+void mlwe_fast_poly_decompress(mlwe_fast_poly *r, const uint8_t a[128]) {
+    for (int i = 0; i < MLWE_FAST_N / 2; i++) {
+        r->coeffs[2 * i + 0] = (int16_t)(((uint32_t)(a[i] & 15) * MLWE_FAST_Q + 8) >> 4);
+        r->coeffs[2 * i + 1] = (int16_t)(((uint32_t)(a[i] >> 4) * MLWE_FAST_Q + 8) >> 4);
+    }
+}
+
+void mlwe_fast_polyvec_compress(uint8_t r[MLWE_FAST_POLYVECCOMPRESSEDBYTES], const mlwe_fast_polyvec *a) {
+    unsigned int i, j, k;
+    uint64_t d0;
+    uint16_t t[4];
+
+    for (i = 0; i < MLWE_FAST_K; i++) {
+        for (j = 0; j < MLWE_FAST_N / 4; j++) {
+            for (k = 0; k < 4; k++) {
+                t[k] = a->vec[i].coeffs[4 * j + k];
+                t[k] += ((int16_t)t[k] >> 15) & MLWE_FAST_Q;
+                d0 = t[k];
+                d0 <<= 10;
+                d0 += 1665;
+                d0 *= 1290167;
+                d0 >>= 32;
+                t[k] = d0 & 0x3ff;
+            }
+            r[0] = (uint8_t)(t[0] >> 0);
+            r[1] = (uint8_t)((t[0] >> 8) | (t[1] << 2));
+            r[2] = (uint8_t)((t[1] >> 6) | (t[2] << 4));
+            r[3] = (uint8_t)((t[2] >> 4) | (t[3] << 6));
+            r[4] = (uint8_t)(t[3] >> 2);
+            r += 5;
+        }
+    }
+}
+
+void mlwe_fast_polyvec_decompress(mlwe_fast_polyvec *r, const uint8_t a[MLWE_FAST_POLYVECCOMPRESSEDBYTES]) {
+    unsigned int i, j, k;
+    uint16_t t[4];
+
+    for (i = 0; i < MLWE_FAST_K; i++) {
+        for (j = 0; j < MLWE_FAST_N / 4; j++) {
+            t[0] = (uint16_t)((a[0] >> 0) | ((uint16_t)a[1] << 8));
+            t[1] = (uint16_t)((a[1] >> 2) | ((uint16_t)a[2] << 6));
+            t[2] = (uint16_t)((a[2] >> 4) | ((uint16_t)a[3] << 4));
+            t[3] = (uint16_t)((a[3] >> 6) | ((uint16_t)a[4] << 2));
+            a += 5;
+
+            for (k = 0; k < 4; k++) {
+                r->vec[i].coeffs[4 * j + k] = (int16_t)(((uint32_t)(t[k] & 0x3FF) * MLWE_FAST_Q + 512) >> 10);
+            }
+        }
+    }
+}
+\end{lstlisting}
+
 \subsection{Message Encoding}
 \label{sub:message_encoding}
 
 The \texttt{mlwe\_fast\_poly\_frommsg} function encodes a 32-byte (256-bit) message into a polynomial by mapping each bit to either $0$ or $\lceil q/2 \rceil = 1665$. The inverse operation \texttt{mlwe\_fast\_poly\_tomsg} decodes a polynomial back to bits by rounding each coefficient to the nearest of $\{0, \lceil q/2 \rceil\}$. This binary encoding, combined with the noise distribution, ensures that decryption succeeds with overwhelming probability.
+
+The C functions performing this encoding and decoding are shown below:
+
+\begin{lstlisting}[language=C]
+void mlwe_fast_poly_frommsg(mlwe_fast_poly *r, const uint8_t msg[32]) {
+    for (int i = 0; i < 32; i++) {
+        for (int j = 0; j < 8; j++) {
+            uint16_t mask = -((msg[i] >> j) & 1);
+            r->coeffs[8 * i + j] = mask & ((MLWE_FAST_Q + 1) / 2);
+        }
+    }
+}
+
+void mlwe_fast_poly_tomsg(uint8_t msg[32], const mlwe_fast_poly *a) {
+    uint32_t t;
+    for (int i = 0; i < 32; i++) {
+        msg[i] = 0;
+        for (int j = 0; j < 8; j++) {
+            t = mlwe_fast_barrett_reduce(a->coeffs[8 * i + j]);
+            t += ((int16_t)t >> 15) & MLWE_FAST_Q;
+            t = (((t << 1) + (MLWE_FAST_Q / 2)) / MLWE_FAST_Q) & 1;
+            msg[i] |= (uint8_t)(t << j);
+        }
+    }
+}
+\end{lstlisting}
 
 \section{KEM and IND-CPA Execution Flow}
 \label{sec:kem_indcpa_flow}
@@ -193,6 +406,36 @@ Encryption reconstructs the public matrix from the seed stored in the public key
 Decryption reverses the ciphertext packing, transforms $\mathbf{u}$ into the NTT domain, computes the inner product with the stored secret vector, converts the result back to the coefficient domain using the inverse NTT, and subtracts it from $v$. The remaining polynomial is decoded back into the 32-byte message. This IND-CPA primitive is deterministic when supplied with fixed coins, which is essential for the explicit re-encryption check used by the KEM layer.
 
 The public KEM wrapper applies the Fujisaki-Okamoto transform. Encapsulation samples a 32-byte message, hashes the public key with SHA3-256, computes a 64-byte SHA3-512 output over the message and public-key hash, and uses the second half as deterministic encryption coins. The first half becomes the shared secret. Decapsulation decrypts the received ciphertext to recover a candidate message, recomputes the same SHA3-512 output, re-encrypts the candidate message, and compares the received ciphertext with the recomputed ciphertext. If the comparison succeeds, the shared secret is selected from the recomputed key material; otherwise, a fallback key is generated from the secret rejection seed $z$ and the received ciphertext using SHAKE256.
+
+The diagrammatic representation of the decapsulation flow is illustrated in Figure~\ref{fig:decaps_flow}:
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        block/.style={rectangle, draw=black, thick, fill=gray!10, minimum width=3.5cm, minimum height=1.1cm, align=center, rounded corners=2pt},
+        decision/.style={diamond, draw=black, thick, fill=yellow!10, aspect=2, align=center},
+        arrow/.style={-stealth, thick}
+    ]
+        % Nodes
+        \node[block, fill=blue!10] (input) at (0, 6) {Input: Ciphertext $c = (\mathbf{u}, v)$};
+        \node[block] (decrypt) at (0, 4.3) {Decrypt Candidate Message \\ $m' = \mathsf{PKE.Decrypt}(sk_{pke}, c)$};
+        \node[block] (rederive) at (0, 2.7) {Rederive Coins \\ $r' = \mathsf{G}(m' \mathbin{\Vert} \mathsf{H}(pk))$};
+        \node[block] (reencrypt) at (0, 1.1) {Re-encrypt \\ $c' = \mathsf{PKE.Encrypt}(pk, m', r')$};
+        \node[decision] (compare) at (0, -0.7) {$c \stackrel{?}{=} c'$};
+        \node[block, fill=green!10] (success) at (-3.2, -2.7) {Return Shared Secret \\ $K = \mathsf{KDF}(m' \mathbin{\Vert} \mathsf{H}(c))$};
+        \node[block, fill=red!10] (fail) at (3.2, -2.7) {Return Fallback Key \\ $K = \mathsf{KDF}(z \mathbin{\Vert} \mathsf{H}(c))$};
+
+        % Connectors
+        \draw[arrow] (input) -- (decrypt);
+        \draw[arrow] (decrypt) -- (rederive);
+        \draw[arrow] (rederive) -- (reencrypt);
+        \draw[arrow] (reencrypt) -- (compare);
+        \draw[arrow] (compare.west) -| node[above, xshift=-0.5cm] {Yes (match)} (success.north);
+        \draw[arrow] (compare.east) -| node[above, xshift=0.5cm] {No (mismatch)} (fail.north);
+    \end{tikzpicture}
+    \caption{KEM Decapsulation Execution Flow showing Fujisaki-Okamoto implicit rejection. \newline [Source: Own Work]}
+    \label{fig:decaps_flow}
+\end{figure}
 
 \section{SIMD Optimizations}
 \label{sec:simd_optimizations}
@@ -217,7 +460,7 @@ Randomness enters the implementation through the \texttt{randombytes} abstractio
 
 The KEM layer checks the randomness calls it performs directly, returning \texttt{MLWE\_\allowbreak FAST\_\allowbreak ERROR\_\allowbreak GENERIC} when entropy acquisition fails during encapsulation or when generating the secret rejection seed $z$. The IND-CPA keypair routine also calls \texttt{randombytes} for its initial seed, but its current internal API has a \texttt{void} return type and can only return early on failure. This means entropy-failure propagation from the internal keypair routine is a limitation of the present interface.
 
-\section{Hash Functions}
+\section{Hash Functions and Keccak Integration}
 \label{sec:hash_functions}
 
 The library integrates the SHA-3 family via the Keccak-f\allowbreak[1600] permutation, taken from the PQClean reference implementation code at commit hash \texttt{3730b32} (\texttt{core/}\allowbreak\texttt{src/}\allowbreak\texttt{fips202.c}). The header \texttt{core/}\allowbreak\texttt{include/}\allowbreak\texttt{lml/}\allowbreak\texttt{fips202.h} exposes fixed-output SHA3 functions, one-shot SHAKE functions, and incremental SHAKE contexts. SHAKE128 is used for deterministic public-matrix generation through \texttt{shake128\_\allowbreak absorb} and \texttt{shake128\_\allowbreak squeezeblocks}. SHAKE256 is used for noise generation and for the rejection PRF that derives a fallback key from the secret seed $z$ and the received ciphertext using SHAKE256. SHA3-256 hashes public keys, while SHA3-512 expands seeds and derives the KEM message/key material.
@@ -240,7 +483,7 @@ The test suite is organized by primitive. Separate Catch2 test files cover reduc
 
 The reference-compatibility test links against the official Kyber512 reference implementation. It generates a reference key pair, encapsulates with MLWE-Fast, and decapsulates with the reference implementation, requiring the resulting shared secrets to match byte-for-byte. This is a strong integration check because it validates public-key parsing, ciphertext formatting, compression choices, message encoding, and KEM-level key derivation across independent implementations.
 
-\section{Summary}
+\section{Summary for Chapter 3}
 \label{sec:implementation_summary}
 
 The MLWE-Fast library implements CRYSTALS-Kyber through a layered architecture that separates protocol coordination, IND-CPA encryption, and polynomial arithmetic. Key design decisions include explicit byte-array API boundaries, 32-byte aligned polynomial data structures, compile-time dispatch between scalar and SIMD code paths, and constant-time primitives for ciphertext verification and key selection. The build system supports scalar, AVX2, and AVX-512 configurations and integrates automated testing against the official Kyber reference implementation. These engineering choices provide a clear basis for correctness testing and future low-level optimization.
